@@ -1,6 +1,6 @@
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { LogBox, Platform } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import * as Linking from "expo-linking";
@@ -15,7 +15,7 @@ if (Platform.OS !== 'web') {
   try { WebBrowser.maybeCompleteAuthSession(); } catch {}
 }
 
-function DeepLinkHandler({ children }: { children: React.ReactNode }) {
+function DeepLinkHandler({ children }: { children: ReactNode }) {
   const { loginWithSessionId } = useAuth();
   useEffect(() => {
     const processed = new Set<string>();
