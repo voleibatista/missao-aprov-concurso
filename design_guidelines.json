@@ -1,0 +1,152 @@
+{
+  "app_name": "MISSÃO APROV CONCURSO",
+  "personality": "1 iOS-Native Clean",
+  "personality_one_liner": "A highly structured, data-driven, and authoritative iOS-native experience that balances professional exam preparation with motivating, tactile gamification.",
+  "color": {
+    "surface": "#FAFAFA",
+    "onSurface": "#171717",
+    "surfaceSecondary": "#FFFFFF",
+    "onSurfaceSecondary": "#404040",
+    "surfaceTertiary": "#F5F5F5",
+    "onSurfaceTertiary": "#525252",
+    "surfaceInverse": "#171717",
+    "onSurfaceInverse": "#FAFAFA",
+    "brand": "#166534",
+    "brandPrimary": "#059669",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#D1FAE5",
+    "onBrandSecondary": "#065F46",
+    "brandTertiary": "#ECFDF5",
+    "onBrandTertiary": "#047857",
+    "success": "#10B981",
+    "onSuccess": "#FFFFFF",
+    "warning": "#F59E0B",
+    "onWarning": "#FFFFFF",
+    "error": "#EF4444",
+    "onError": "#FFFFFF",
+    "info": "#737373",
+    "onInfo": "#FFFFFF",
+    "border": "#E5E5E5",
+    "borderStrong": "#D4D4D4",
+    "divider": "#F5F5F5"
+  },
+  "typography": {
+    "displayFontFamily": "Plus Jakarta Sans",
+    "textFontFamily": "Geist",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous vertical padding between sections to avoid cognitive overload. Tight spacing inside data cards. Use flex grid to evenly space metric tiles.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": "1",
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": "true",
+    "do's": [
+      "Use glass on bottom tab bar so scrolling lists flow smoothly behind.",
+      "Use glass on sticky headers in the question bank.",
+      "Use glass for the bottom action container in the Flashcard view."
+    ],
+    "dont's": [
+      "Never use glass on data cards or metric tiles.",
+      "Never blur body text or question explanations."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Home",
+      "purpose": "A dashboard combining gamification streaks, overall readiness score, and quick entry points to study modes.",
+      "states": {
+        "loading": "Skeleton UI for progress rings and metric cards.",
+        "empty": "Onboarding prompt: 'Define your target exam to generate your daily plan.'",
+        "error": "Failed to load progress. Retry button."
+      },
+      "layout": "Header: User greeting + Streak counter (warning color for fire). Section 1: Hero readiness card (progress ring for % of preparation, hours studied). Section 2: 2-column grid of quick metrics (Questions answered, Accuracy %). Section 3: Horizontal scroll of primary actions (Estudar, Simulado, Flashcards, Chat IA) inside tinted containers. Section 4: Daily goal progress."
+    },
+    {
+      "name": "Questões (Question Bank)",
+      "purpose": "A highly readable, distraction-free interface for solving multiple-choice questions.",
+      "states": {
+        "loading": "Spinner centered.",
+        "empty": "Illustration + 'No questions match your filter.'",
+        "error": "Error fetching questions."
+      },
+      "layout": "Sticky glass header with active filters (Subject, Year). Question text in textFontFamily (Geist) at base size. Options stacked vertically as touchable cards (border selection). Primary sticky CTA at bottom: 'Responder'. Upon answering, card expands inline to show AI explanation."
+    },
+    {
+      "name": "Flashcards",
+      "purpose": "Spaced-repetition review session with smooth swipe and tap animations.",
+      "states": {
+        "loading": "Centered spinner.",
+        "empty": "'Success Favours The Prepared' empty state illustration. 'You have completed all reviews for today!'",
+        "error": "Could not load deck."
+      },
+      "layout": "Centered main card. Tap to flip (Reanimated). Once flipped, 4 pill buttons appear anchored at bottom: 'Não Lembro' (error tint), 'Difícil' (warning tint), 'Lembrei' (brandPrimary tint), 'Fácil' (brandSecondary tint). No complex desktop UI; just the card and 4 actions."
+    },
+    {
+      "name": "Chat IA (Professor IA)",
+      "purpose": "Interactive chat with the AI tutor for personalized explanations.",
+      "states": {
+        "loading": "Typing indicator...",
+        "empty": "Suggested prompts as chips: 'Explain Administrative Law', 'How to study for INSS?'",
+        "error": "Connection lost. Retry."
+      },
+      "layout": "Scrollable chat timeline. User messages align right (brandPrimary bubble). AI messages align left (surfaceSecondary bubble) with the AI avatar image on the side. Sticky input at the bottom inside KeyboardAvoidingView."
+    }
+  ],
+  "images": {
+    "hero_study": {
+      "url": "https://images.unsplash.com/photo-1675453987277-c7a5834daf14?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwxfHxzdHVkeSUyMHBsYW5uZXIlMjBoZXJvJTIwaW1hZ2V8ZW58MHx8fHwxNzg3ODM3Njg0fDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Desk with notebook and pen, representing study planning"
+    },
+    "ai_avatar": {
+      "url": "https://images.unsplash.com/photo-1738003667850-a2fb736e31b3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwxfHxhaSUyMHByb2Zlc3NvciUyMGF2YXRhciUyMGlsbHVzdHJhdGlvbnxlbnwwfHx8fDE3ODc4Mzc2ODV8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "AI professor avatar typography"
+    },
+    "empty_success": {
+      "url": "https://images.unsplash.com/photo-1620632889724-f1ddc7841c40?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NjV8MHwxfHNlYXJjaHwxfHxleGFtJTIwcHJlcGFyYXRpb24lMjBzdWNjZXNzJTIwaWxsdXN0cmF0aW9ufGVufDB8fHx8MTc4NzgzNzY4NXww&ixlib=rb-4.1.0&q=85",
+      "alt": "Scrabble tiles saying Success Favours The Prepared"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Strictly adhere to the 'iOS-Native Clean' personality. The UI must feel like a serious, professional tool. Avoid playful/bouncy elements outside of gamification milestones.",
+    "Color Palette Constraint: ALL BLUES AND PURPLES ARE STRICTLY BANNED. Use the provided Forest Green/Emerald brand colors. Gamification streaks should utilize the warning (Ochre) token.",
+    "Typography: Use Plus Jakarta Sans for headings and numbers on the dashboard. Use Geist for body text, question descriptions, and all long-form reading content. Geist provides excellent legibility for dense study materials.",
+    "Dashboard Layout: Ensure the metric grid uses standard React Native Flexbox (`flexDirection: 'row'`, `flexWrap: 'wrap'`, `justifyContent: 'space-between'`, `gap: md`). Avoid 'orphaned' cards on the right side.",
+    "Flashcards Implementation: Replace complex Anki properties with a fluid mobile experience. Use `react-native-reanimated` for smooth card flipping. The four response buttons MUST be anchored at the bottom (sticky inside a safe area container).",
+    "Gamification Components: Implement a visual 'StreakBadge' component using `warning` text and a Phosphor Fire icon. The Home dashboard should have a progress ring for the daily goal.",
+    "Images: Always apply the gradient-to-dark scrim pattern (as defined in the system rules) when placing text over the 'hero_study' background image."
+  ]
+}
