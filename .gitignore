@@ -98,3 +98,4 @@ frontend/app.backup/
 # Local generated files
 __pycache__/
 *.pyc
+app.backup-antigo/
