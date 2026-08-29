@@ -19,6 +19,8 @@ from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
+from google.oauth2 import id_token as google_id_token
+from google.auth.transport import requests as google_requests
 
 from seed_data import CONCURSOS, DISCIPLINAS, QUESTOES, FLASHCARDS
 
@@ -33,6 +35,7 @@ EMERGENT_EMAIL_KEY = os.environ.get('EMERGENT_EMAIL_KEY', '')
 EMAIL_FROM_NAME = os.environ.get('EMAIL_FROM_NAME', 'Missão Aprov Concurso')
 APP_BASE_URL = os.environ.get('APP_BASE_URL', '')
 ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL', 'admin@missaoaprov.com').lower()
+GOOGLE_WEB_CLIENT_ID = os.environ.get('GOOGLE_WEB_CLIENT_ID', '')
 EMAIL_BASE_URL = "https://integrations.emergentagent.com"
 
 client = AsyncIOMotorClient(MONGO_URL)
@@ -348,6 +351,82 @@ async def reset_password(data: ResetPasswordIn):
     await db.users.update_one({"user_id": reset["user_id"]}, {"$set": {"password_hash": hash_password(data.new_password)}})
     await db.password_resets.update_one({"token": data.token}, {"$set": {"used": True}})
     return {"ok": True, "message": "Senha redefinida com sucesso"}
+
+
+
+class GoogleLoginIn(BaseModel):
+    id_token: str
+
+
+@api_router.post("/auth/google")
+async def google_login(data: GoogleLoginIn):
+    if not GOOGLE_WEB_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="Google OAuth não configurado")
+
+    try:
+        payload = google_id_token.verify_oauth2_token(
+            data.id_token,
+            google_requests.Request(),
+            GOOGLE_WEB_CLIENT_ID,
+        )
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token Google inválido")
+
+    email = (payload.get("email") or "").lower()
+    name = payload.get("name") or email.split("@")[0]
+    picture = payload.get("picture")
+
+    if not email or not payload.get("email_verified"):
+        raise HTTPException(status_code=401, detail="Email Google inválido ou não verificado")
+
+    existing = await db.users.find_one({"email": email})
+
+    if existing:
+        if existing.get("blocked"):
+            raise HTTPException(
+                status_code=403,
+                detail="Conta bloqueada. Entre em contato com o suporte."
+            )
+
+        user_id = existing["user_id"]
+
+        await db.users.update_one(
+            {"user_id": user_id},
+            {"$set": {
+                "name": name,
+                "picture": picture,
+            }}
+        )
+    else:
+        user_id = gen_id("user")
+
+        await db.users.insert_one({
+            "user_id": user_id,
+            "email": email,
+            "name": name,
+            "picture": picture,
+            "auth_type": "google",
+            "created_at": now_utc(),
+            "onboarded": False,
+            "xp": 0,
+            "streak": 0,
+            "last_study_date": None,
+            "concurso_id": None,
+            "is_admin": email == ADMIN_EMAIL,
+            "blocked": False,
+        })
+
+    token = make_jwt(user_id)
+
+    user = await db.users.find_one(
+        {"user_id": user_id},
+        {"_id": 0, "password_hash": 0}
+    )
+
+    return {
+        "token": token,
+        "user": user
+    }
 
 
 @api_router.post("/auth/session")

@@ -20,7 +20,7 @@ type AuthCtx = {
   refresh: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
-  loginWithSessionId: (sessionId: string) => Promise<void>;
+  loginWithGoogleToken: (idToken: string) => Promise<void>;
   logout: () => Promise<void>;
 };
 
@@ -61,9 +61,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(data.user);
   };
 
-  const loginWithSessionId = async (sessionId: string) => {
-    const data = await apiFetch('/auth/session', { method: 'POST', body: JSON.stringify({ session_id: sessionId }) });
-    await saveToken(data.session_token);
+  const loginWithGoogleToken = async (idToken: string) => {
+    const data = await apiFetch('/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ id_token: idToken }),
+    });
+    await saveToken(data.token);
     setUser(data.user);
   };
 
@@ -73,7 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
-  return <Ctx.Provider value={{ user, loading, refresh, login, register, loginWithSessionId, logout }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ user, loading, refresh, login, register, loginWithGoogleToken, logout }}>{children}</Ctx.Provider>;
 }
 
 export function useAuth() {

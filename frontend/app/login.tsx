@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator, Linking as RNLinking } from 'react-native';
-import * as Linking from 'expo-linking';
-import * as WebBrowser from 'expo-web-browser';
+import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -16,7 +15,7 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const { login, register } = useAuth();
+  const { login, register, loginWithGoogleToken } = useAuth();
   const router = useRouter();
 
   const submit = async () => {
@@ -30,17 +29,50 @@ export default function Login() {
   };
 
   const googleLogin = async () => {
+    setErr(null);
+    setLoading(true);
+
     try {
-      const redirectUrl = Platform.OS === 'web'
-        ? window.location.origin + '/'
-        : Linking.createURL('');
-      const authUrl = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
       if (Platform.OS === 'web') {
-        window.location.href = authUrl;
-      } else {
-        await WebBrowser.openAuthSessionAsync(authUrl, redirectUrl);
+        throw new Error('Login Google disponível no aplicativo Android.');
       }
-    } catch (e: any) { setErr(e?.message || 'Erro no login Google'); }
+
+      const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+
+      if (!webClientId) {
+        throw new Error('Google Client ID não configurado.');
+      }
+
+      GoogleSignin.configure({
+        webClientId,
+        offlineAccess: false,
+      });
+
+      await GoogleSignin.hasPlayServices({
+        showPlayServicesUpdateDialog: true,
+      });
+
+      const response: any = await GoogleSignin.signIn();
+
+      const idToken =
+        response?.data?.idToken ||
+        response?.idToken;
+
+      if (!idToken) {
+        throw new Error('Google não retornou o token de autenticação.');
+      }
+
+      await loginWithGoogleToken(idToken);
+      router.replace('/');
+    } catch (e: any) {
+      if (e?.code === statusCodes.SIGN_IN_CANCELLED) {
+        setErr('Login Google cancelado.');
+      } else {
+        setErr(e?.message || 'Erro no login Google');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
