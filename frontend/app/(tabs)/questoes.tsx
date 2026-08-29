@@ -14,11 +14,12 @@ export default function Questoes() {
   const [choice, setChoice] = useState<number | null>(null);
   const [resultado, setResultado] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [favorited, setFavorited] = useState(false);
 
   useEffect(() => { apiFetch('/disciplinas').then((d) => setDisciplinas(d.disciplinas)); }, []);
 
   const loadQuestoes = useCallback(async (disc?: string) => {
-    setLoading(true); setChoice(null); setResultado(null); setIdx(0);
+    setLoading(true); setChoice(null); setResultado(null); setIdx(0); setFavorited(false);
     try {
       const q = await apiFetch(`/questoes${disc ? `?disciplina=${disc}` : ''}`);
       setQuestoes(q.questoes);
@@ -30,6 +31,11 @@ export default function Questoes() {
   const responder = async () => {
     if (choice == null) return;
     const q = questoes[idx];
+  const favoritar = async () => {
+    if (!q) return;
+    const r = await apiFetch(`/questoes/${q.id}/favorite`, { method: 'POST' });
+    setFavorited(r.favorited);
+  };
     const r = await apiFetch('/questoes/answer', { method: 'POST', body: JSON.stringify({ questao_id: q.id, resposta: choice }) });
     setResultado(r);
   };
@@ -40,6 +46,11 @@ export default function Questoes() {
   };
 
   const q = questoes[idx];
+  const favoritar = async () => {
+    if (!q) return;
+    const r = await apiFetch(`/questoes/${q.id}/favorite`, { method: 'POST' });
+    setFavorited(r.favorited);
+  };
 
   return (
     <View testID="questoes-screen" style={styles.container}>
@@ -65,7 +76,10 @@ export default function Questoes() {
         <ScrollView contentContainerStyle={{ padding: spacing.xl, paddingBottom: 120 }}>
           <View style={styles.qHeader}>
             <Text style={styles.qMeta}>{q.banca} • {q.ano} • {q.dificuldade?.toUpperCase()}</Text>
-            <Text style={styles.qCount}>Questão {idx + 1} de {questoes.length}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Text style={styles.qCount}>Questão {idx + 1} de {questoes.length}</Text>
+              <Pressable onPress={favoritar}><Ionicons name={favorited ? 'heart' : 'heart-outline'} size={22} color={favorited ? colors.error : colors.info} /></Pressable>
+            </View>
           </View>
           <Text style={styles.qEnunciado}>{q.enunciado}</Text>
 

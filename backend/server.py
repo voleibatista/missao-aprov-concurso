@@ -5,11 +5,16 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import re
+import ipaddress
 import logging
 import uuid
 import bcrypt
 import jwt as pyjwt
 import httpx
+from html import escape
+from html.parser import HTMLParser
+from urllib.parse import urlparse
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional
@@ -24,6 +29,11 @@ MONGO_URL = os.environ['MONGO_URL']
 DB_NAME = os.environ['DB_NAME']
 JWT_SECRET = os.environ['JWT_SECRET']
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
+EMERGENT_EMAIL_KEY = os.environ.get('EMERGENT_EMAIL_KEY', '')
+EMAIL_FROM_NAME = os.environ.get('EMAIL_FROM_NAME', 'Missão Aprov Concurso')
+APP_BASE_URL = os.environ.get('APP_BASE_URL', '')
+ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL', 'admin@missaoaprov.com').lower()
+EMAIL_BASE_URL = "https://integrations.emergentagent.com"
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
@@ -90,7 +100,107 @@ async def require_user(authorization: Optional[str]) -> dict:
     user = await get_user_from_token(authorization)
     if not user:
         raise HTTPException(status_code=401, detail="Não autenticado")
+    if user.get("blocked"):
+        raise HTTPException(status_code=403, detail="Conta bloqueada. Entre em contato com o suporte.")
     return user
+
+
+async def require_admin(authorization: Optional[str]) -> dict:
+    user = await require_user(authorization)
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Acesso restrito ao administrador.")
+    return user
+
+
+# ============ EMAIL (Resend Emergent-managed) ============
+_SHORTENERS = ("bit.ly", "tinyurl.com", "t.co", "is.gd", "cutt.ly", "goo.gl", "rebrand.ly")
+_CRED_ASK = ("reply with your password", "reply with the code", "send your password", "cvv",
+             "responda com sua senha", "envie sua senha", "confirme seu cartão", "seed phrase")
+_HOSTISH = re.compile(r"\b(?:https?://)?((?:[a-z0-9-]+\.)+[a-z]{2,})", re.I)
+
+
+def _host_ok(host: str) -> bool:
+    if not host or "xn--" in host:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return False
+    except ValueError:
+        pass
+    return not any(host == s or host.endswith("." + s) for s in _SHORTENERS)
+
+
+def _same_site(shown: str, real: str) -> bool:
+    return shown == real or real.endswith("." + shown) or shown.endswith("." + real)
+
+
+class _EmailScan(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.tags, self.urls, self.anchors = set(), [], []
+        self._href, self._text = None, []
+    def handle_starttag(self, tag, attrs):
+        self.tags.add(tag.lower())
+        self.urls += [v for k, v in attrs if k.lower() in ("href", "src") and v]
+        if tag.lower() == "a":
+            self._href = dict((k.lower(), v) for k, v in attrs).get("href")
+            self._text = []
+    def handle_data(self, data):
+        if self._href is not None:
+            self._text.append(data)
+    def handle_endtag(self, tag):
+        if tag.lower() == "a" and self._href is not None:
+            self.anchors.append((self._href, "".join(self._text)))
+            self._href, self._text = None, []
+
+
+def _assert_safe_email(subject: str, html: str) -> None:
+    scan = _EmailScan(); scan.feed(html)
+    if scan.tags & {"form", "input", "textarea", "select"}:
+        raise ValueError("No forms in email")
+    body = f"{subject}\n{html}".lower()
+    for p in _CRED_ASK:
+        if p in body:
+            raise ValueError(f"Email asks credentials: {p!r}")
+    for url in scan.urls:
+        low = url.strip().lower()
+        if low.startswith(("mailto:", "tel:", "cid:", "#")):
+            continue
+        if not low.startswith("https://"):
+            raise ValueError(f"Non-https link: {url!r}")
+        host = urlparse(low).hostname or ""
+        if not _host_ok(host) or urlparse(low).username is not None:
+            raise ValueError(f"Invalid host: {url!r}")
+    for href, text in scan.anchors:
+        real = urlparse(href.strip().lower()).hostname or ""
+        if not real:
+            continue
+        for m in _HOSTISH.finditer(text):
+            if not _same_site(m.group(1).lower(), real):
+                raise ValueError(f"Anchor {m.group(1)!r} != {real!r}")
+
+
+async def send_email(*, to: str, subject: str, html: str) -> Optional[str]:
+    if not EMERGENT_EMAIL_KEY:
+        logger.warning("EMERGENT_EMAIL_KEY not set — skipping send")
+        return None
+    _assert_safe_email(subject, html)
+    payload = {"to": [to], "subject": subject, "html": html, "from_name": EMAIL_FROM_NAME}
+    try:
+        async with httpx.AsyncClient(timeout=30) as hc:
+            resp = await hc.post(
+                f"{EMAIL_BASE_URL}/api/v1/email/send",
+                headers={"X-Email-Key": EMERGENT_EMAIL_KEY},
+                json=payload,
+            )
+        resp.raise_for_status()
+        return resp.json().get("id")
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Email send failed: {e.response.status_code} {e.response.text}")
+        return None
+    except Exception as e:
+        logger.error(f"Email send error: {e}")
+        return None
 
 
 # ============ MODELS ============
@@ -140,6 +250,7 @@ async def register(data: RegisterIn):
     if existing:
         raise HTTPException(status_code=400, detail="Email já cadastrado")
     user_id = gen_id("user")
+    is_admin = data.email.lower() == ADMIN_EMAIL
     user_doc = {
         "user_id": user_id,
         "email": data.email.lower(),
@@ -152,6 +263,8 @@ async def register(data: RegisterIn):
         "streak": 0,
         "last_study_date": None,
         "concurso_id": None,
+        "is_admin": is_admin,
+        "blocked": False,
     }
     await db.users.insert_one(user_doc)
     token = make_jwt(user_id)
@@ -163,9 +276,78 @@ async def login(data: LoginIn):
     user = await db.users.find_one({"email": data.email.lower()})
     if not user or not user.get("password_hash") or not verify_password(data.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Credenciais inválidas")
+    if user.get("blocked"):
+        raise HTTPException(status_code=403, detail="Conta bloqueada. Entre em contato com o suporte.")
     token = make_jwt(user["user_id"])
     user.pop("_id", None); user.pop("password_hash", None)
     return {"token": token, "user": user}
+
+
+# ============ PASSWORD RESET ============
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+
+class ResetPasswordIn(BaseModel):
+    token: str
+    new_password: str
+
+@api_router.post("/auth/forgot-password")
+async def forgot_password(data: ForgotPasswordIn):
+    """Sempre retorna sucesso — não vaza informação sobre email existente."""
+    email = data.email.lower()
+    user = await db.users.find_one({"email": email})
+    if user and user.get("auth_type") == "password":
+        token = uuid.uuid4().hex + uuid.uuid4().hex  # 64 chars
+        await db.password_resets.insert_one({
+            "token": token,
+            "user_id": user["user_id"],
+            "email": email,
+            "expires_at": now_utc() + timedelta(minutes=15),
+            "used": False,
+            "created_at": now_utc(),
+        })
+        reset_url = f"{APP_BASE_URL}/reset-password?token={token}"
+        html = f"""<table role="presentation" width="100%" style="background:#FAFAFA;padding:24px 0"><tr><td align="center">
+<table role="presentation" width="560" style="background:#FFFFFF;border-radius:16px;overflow:hidden;font-family:Arial,sans-serif">
+<tr><td style="background:#059669;padding:32px;text-align:center">
+  <h1 style="color:#FFFFFF;margin:0;font-size:22px;font-weight:800">MISSÃO APROV CONCURSO</h1>
+  <p style="color:#D1FAE5;margin:8px 0 0;font-size:13px">Recuperação de senha</p>
+</td></tr>
+<tr><td style="padding:32px 32px 24px;color:#171717">
+  <p style="margin:0 0 12px;font-size:15px">Olá, <strong>{escape(user.get('name','aluno'))}</strong>!</p>
+  <p style="margin:0 0 20px;font-size:14px;line-height:22px;color:#404040">
+    Recebemos um pedido para redefinir a senha da sua conta. Clique no botão abaixo para escolher uma nova senha. O link expira em <strong>15 minutos</strong>.
+  </p>
+  <p style="text-align:center;margin:24px 0">
+    <a href="{reset_url}" style="background:#059669;color:#FFFFFF;text-decoration:none;padding:14px 28px;border-radius:12px;font-weight:700;display:inline-block">Redefinir minha senha</a>
+  </p>
+  <p style="margin:20px 0 0;font-size:12px;color:#737373;line-height:18px">
+    Se você não solicitou esta redefinição, pode ignorar este email — sua senha continuará a mesma.
+  </p>
+</td></tr>
+<tr><td style="background:#F5F5F5;padding:20px 32px;text-align:center;color:#737373;font-size:11px">
+  Enviado por {escape(EMAIL_FROM_NAME)}. Nunca pedimos sua senha por email.
+</td></tr></table></td></tr></table>"""
+        await send_email(to=email, subject="Redefinição de senha — Missão Aprov Concurso", html=html)
+    return {"ok": True, "message": "Se o email existir, um link foi enviado."}
+
+
+@api_router.post("/auth/reset-password")
+async def reset_password(data: ResetPasswordIn):
+    reset = await db.password_resets.find_one({"token": data.token, "used": False}, {"_id": 0})
+    if not reset:
+        raise HTTPException(status_code=400, detail="Token inválido ou já utilizado")
+    exp = reset.get("expires_at")
+    if isinstance(exp, datetime):
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if exp < now_utc():
+            raise HTTPException(status_code=400, detail="Token expirado. Solicite um novo.")
+    if len(data.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Senha muito curta (mín. 6 caracteres)")
+    await db.users.update_one({"user_id": reset["user_id"]}, {"$set": {"password_hash": hash_password(data.new_password)}})
+    await db.password_resets.update_one({"token": data.token}, {"$set": {"used": True}})
+    return {"ok": True, "message": "Senha redefinida com sucesso"}
 
 
 @api_router.post("/auth/session")
@@ -219,6 +401,43 @@ async def logout(authorization: Optional[str] = Header(None)):
     return {"ok": True}
 
 
+
+class SelectConcursoIn(BaseModel):
+    concurso_id: str
+
+
+@api_router.patch("/auth/concurso")
+async def select_concurso(data: SelectConcursoIn, authorization: Optional[str] = Header(None)):
+    user = await require_user(authorization)
+
+    concurso = await db.concursos.find_one({
+        "id": data.concurso_id,
+        "deleted_at": {"$exists": False}
+    }, {"_id": 0})
+
+    if not concurso:
+        raise HTTPException(status_code=404, detail="Concurso não encontrado")
+
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {
+            "concurso_id": data.concurso_id,
+            "onboarded": True
+        }}
+    )
+
+    updated = await db.users.find_one(
+        {"user_id": user["user_id"]},
+        {"_id": 0, "password_hash": 0}
+    )
+
+    return {
+        "ok": True,
+        "concurso_id": data.concurso_id,
+        "user": updated
+    }
+
+
 # ============ ONBOARDING ============
 @api_router.post("/onboarding")
 async def onboarding(data: OnboardingIn, authorization: Optional[str] = Header(None)):
@@ -234,56 +453,68 @@ async def onboarding(data: OnboardingIn, authorization: Optional[str] = Header(N
 # ============ CONCURSOS ============
 @api_router.get("/concursos")
 async def list_concursos(q: Optional[str] = None, situacao: Optional[str] = None, area: Optional[str] = None):
-    result = CONCURSOS[:]
-    if q:
-        ql = q.lower()
-        result = [c for c in result if ql in c["nome"].lower() or ql in c["orgao"].lower() or ql in c["cargo"].lower()]
+    query: dict = {"deleted_at": {"$exists": False}}
     if situacao:
-        result = [c for c in result if c["situacao"] == situacao]
+        query["situacao"] = situacao
     if area:
-        result = [c for c in result if c["area"] == area]
-    return {"concursos": result}
+        query["area"] = area
+    if q:
+        rgx = {"$regex": q, "$options": "i"}
+        query["$or"] = [{"nome": rgx}, {"orgao": rgx}, {"cargo": rgx}]
+    items = []
+    async for c in db.concursos.find(query, {"_id": 0}).sort("nome", 1):
+        items.append(c)
+    return {"concursos": items}
 
 
 @api_router.get("/concursos/{concurso_id}")
 async def get_concurso(concurso_id: str):
-    for c in CONCURSOS:
-        if c["id"] == concurso_id:
-            disc_ids = c.get("disciplinas", [])
-            disciplinas = [d for d in DISCIPLINAS if d["id"] in disc_ids]
-            return {"concurso": c, "disciplinas": disciplinas}
-    raise HTTPException(status_code=404, detail="Concurso não encontrado")
+    c = await db.concursos.find_one({"id": concurso_id, "deleted_at": {"$exists": False}}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Concurso não encontrado")
+    disciplinas = []
+    async for d in db.disciplinas.find({"id": {"$in": c.get("disciplinas", [])}}, {"_id": 0}):
+        disciplinas.append(d)
+    return {"concurso": c, "disciplinas": disciplinas}
 
 
 # ============ DISCIPLINAS ============
 @api_router.get("/disciplinas")
 async def list_disciplinas():
-    return {"disciplinas": DISCIPLINAS}
+    items = []
+    async for d in db.disciplinas.find({}, {"_id": 0}).sort("nome", 1):
+        items.append(d)
+    return {"disciplinas": items}
 
 
 # ============ QUESTOES ============
 @api_router.get("/questoes")
-async def list_questoes(disciplina: Optional[str] = None, banca: Optional[str] = None, limit: int = 20):
-    result = QUESTOES[:]
+async def list_questoes(disciplina: Optional[str] = None, banca: Optional[str] = None, area: Optional[str] = None, limit: int = 20):
+    query: dict = {"deleted_at": {"$exists": False}}
     if disciplina:
-        result = [q for q in result if q["disciplina"] == disciplina]
+        query["disciplina"] = disciplina
     if banca:
-        result = [q for q in result if q.get("banca") == banca]
-    return {"questoes": result[:limit]}
+        query["banca"] = banca
+    if area:
+        query["area"] = area
+    items = []
+    async for q in db.questoes.find(query, {"_id": 0}).limit(min(max(limit, 1), 100)):
+        items.append(q)
+    return {"questoes": items}
 
 
 @api_router.get("/questoes/{questao_id}")
 async def get_questao(questao_id: str):
-    for q in QUESTOES:
-        if q["id"] == questao_id:
-            return {"questao": q}
+    q = await db.questoes.find_one({"id": questao_id, "deleted_at": {"$exists": False}}, {"_id": 0})
+    if q:
+        return {"questao": q}
     raise HTTPException(status_code=404, detail="Questão não encontrada")
 
 
 @api_router.post("/questoes/answer")
 async def answer_questao(data: QuestionAnswer, authorization: Optional[str] = Header(None)):
     user = await require_user(authorization)
-    questao = next((q for q in QUESTOES if q["id"] == data.questao_id), None)
+    questao = await db.questoes.find_one({"id": data.questao_id, "deleted_at": {"$exists": False}}, {"_id": 0})
     if not questao:
         raise HTTPException(status_code=404, detail="Questão não encontrada")
     correta = questao["correta"] == data.resposta
@@ -292,7 +523,6 @@ async def answer_questao(data: QuestionAnswer, authorization: Optional[str] = He
         "disciplina": questao["disciplina"], "resposta": data.resposta,
         "correta": correta, "created_at": now_utc(),
     })
-    # XP + streak
     xp_gain = 10 if correta else 3
     today = now_utc().date().isoformat()
     last = user.get("last_study_date")
@@ -306,6 +536,51 @@ async def answer_questao(data: QuestionAnswer, authorization: Optional[str] = He
     )
     return {"correta": correta, "explicacao": questao["explicacao"],
             "resposta_correta": questao["correta"], "xp_gain": xp_gain}
+
+
+@api_router.post("/questoes/{questao_id}/favorite")
+async def favorite_questao(questao_id: str, authorization: Optional[str] = Header(None)):
+    user = await require_user(authorization)
+    q = await db.questoes.find_one({"id": questao_id, "deleted_at": {"$exists": False}}, {"_id": 0, "id": 1})
+    if not q:
+        raise HTTPException(status_code=404, detail="Questão não encontrada")
+    key = {"user_id": user["user_id"], "questao_id": questao_id}
+    existing = await db.favorites.find_one(key)
+    if existing:
+        await db.favorites.delete_one(key)
+        return {"ok": True, "favorited": False}
+    await db.favorites.insert_one({**key, "created_at": now_utc()})
+    return {"ok": True, "favorited": True}
+
+
+@api_router.get("/favoritos")
+async def list_favoritos(authorization: Optional[str] = Header(None)):
+    user = await require_user(authorization)
+    ids = [x["questao_id"] async for x in db.favorites.find({"user_id": user["user_id"]}, {"_id": 0, "questao_id": 1})]
+    items = [q async for q in db.questoes.find({"id": {"$in": ids}, "deleted_at": {"$exists": False}}, {"_id": 0})] if ids else []
+    return {"questoes": items}
+
+
+@api_router.get("/caderno-erros")
+async def caderno_erros(authorization: Optional[str] = Header(None)):
+    user = await require_user(authorization)
+    pipeline = [
+        {"$match": {"user_id": user["user_id"], "correta": False}},
+        {"$sort": {"created_at": -1}},
+        {"$group": {"_id": "$questao_id", "ultima_resposta": {"$first": "$resposta"}, "erros": {"$sum": 1}, "ultima_tentativa": {"$first": "$created_at"}}},
+        {"$limit": 100},
+    ]
+    erros = [x async for x in db.answers.aggregate(pipeline)]
+    qmap = {}
+    if erros:
+        ids = [e["_id"] for e in erros]
+        qmap = {q["id"]: q async for q in db.questoes.find({"id": {"$in": ids}}, {"_id": 0})}
+    items = []
+    for e in erros:
+        q = qmap.get(e["_id"])
+        if q:
+            items.append({**q, "erros": e["erros"], "ultima_resposta": e["ultima_resposta"]})
+    return {"questoes": items}
 
 
 # ============ FLASHCARDS ============
@@ -362,13 +637,14 @@ async def review_flashcard(data: FlashcardReview, authorization: Optional[str] =
 @api_router.post("/simulado/start")
 async def simulado_start(data: SimuladoStart, authorization: Optional[str] = Header(None)):
     user = await require_user(authorization)
-    pool = QUESTOES[:]
+    query: dict = {"deleted_at": {"$exists": False}}
     if data.disciplinas:
-        pool = [q for q in pool if q["disciplina"] in data.disciplinas]
+        query["disciplina"] = {"$in": data.disciplinas}
     elif data.concurso_id:
-        concurso = next((c for c in CONCURSOS if c["id"] == data.concurso_id), None)
+        concurso = await db.concursos.find_one({"id": data.concurso_id}, {"_id": 0})
         if concurso:
-            pool = [q for q in pool if q["disciplina"] in concurso.get("disciplinas", [])]
+            query["disciplina"] = {"$in": concurso.get("disciplinas", [])}
+    pool = [q async for q in db.questoes.find(query, {"_id": 0})]
     import random
     random.shuffle(pool)
     selected = pool[:data.num_questoes]
@@ -383,7 +659,8 @@ async def simulado_start(data: SimuladoStart, authorization: Optional[str] = Hea
 
 class SimuladoSubmit(BaseModel):
     simulado_id: str
-    respostas: dict  # questao_id -> index
+    respostas: dict
+
 
 @api_router.post("/simulado/submit")
 async def simulado_submit(data: SimuladoSubmit, authorization: Optional[str] = Header(None)):
@@ -391,13 +668,13 @@ async def simulado_submit(data: SimuladoSubmit, authorization: Optional[str] = H
     sim = await db.simulados.find_one({"simulado_id": data.simulado_id, "user_id": user["user_id"]}, {"_id": 0})
     if not sim:
         raise HTTPException(status_code=404, detail="Simulado não encontrado")
-    corrigidas = []
-    acertos = 0
+    qs = {q["id"]: q async for q in db.questoes.find({"id": {"$in": sim["questao_ids"]}}, {"_id": 0})}
+    corrigidas, acertos, por_disciplina = [], 0, {}
     total = len(sim["questao_ids"])
-    por_disciplina = {}
     for qid in sim["questao_ids"]:
-        q = next((x for x in QUESTOES if x["id"] == qid), None)
-        if not q: continue
+        q = qs.get(qid)
+        if not q:
+            continue
         resp = data.respostas.get(qid, -1)
         certo = q["correta"] == resp
         if certo: acertos += 1
@@ -406,6 +683,7 @@ async def simulado_submit(data: SimuladoSubmit, authorization: Optional[str] = H
         por_disciplina[d]["total"] += 1
         if certo: por_disciplina[d]["acertos"] += 1
         corrigidas.append({"questao": q, "resposta": resp, "correta": certo})
+        await db.answers.insert_one({"user_id": user["user_id"], "questao_id": qid, "disciplina": d, "resposta": resp, "correta": certo, "created_at": now_utc(), "origem": "simulado"})
     percentual = round(100.0 * acertos / total, 1) if total else 0
     xp = acertos * 15
     await db.simulados.update_one({"simulado_id": data.simulado_id}, {"$set": {"status": "concluido", "acertos": acertos, "total": total, "percentual": percentual, "por_disciplina": por_disciplina, "concluido_em": now_utc()}})
@@ -440,7 +718,7 @@ async def dashboard(authorization: Optional[str] = Header(None)):
     by_disc = []
     async for r in db.answers.aggregate(pipeline):
         pct = round(100 * r["acertos"] / r["total"], 1) if r["total"] else 0
-        disc = next((d for d in DISCIPLINAS if d["id"] == r["_id"]), None)
+        disc = await db.disciplinas.find_one({"id": r["_id"]}, {"_id": 0})
         by_disc.append({"disciplina": r["_id"], "nome": (disc or {}).get("nome", r["_id"]), "total": r["total"], "acertos": r["acertos"], "percentual": pct})
     by_disc.sort(key=lambda x: x["percentual"], reverse=True)
     # Flashcards due
@@ -490,7 +768,7 @@ async def chat_message(data: ChatMessageIn, authorization: Optional[str] = Heade
     async for m in db.chat_messages.find({"session_id": data.session_id, "user_id": user["user_id"]}, {"_id": 0}).sort("created_at", 1).limit(20):
         history.append(m)
 
-    system = ("Você é o Professor IA do MISSÃO APROV CONCURSO, um tutor especialista em concursos públicos brasileiros. "
+    system = ("Você é o Professor IA do MISSÃO APROV, tutor especialista em concursos públicos brasileiros e ENEM. Quando a pergunta for de ENEM, ensine pelas competências e áreas do exame; quando for concurso, destaque banca e pegadinhas. "
               "Explique de forma objetiva, didática, com exemplos práticos e destaque pegadinhas de banca. "
               "Use listas, negrito com **, e crie associações e mnemônicos quando útil. Responda em português do Brasil.")
 
@@ -529,7 +807,7 @@ async def chat_ask(data: ChatSimpleIn, authorization: Optional[str] = Header(Non
     user = await require_user(authorization)
     from emergentintegrations.llm.chat import LlmChat, UserMessage
     sid = data.session_id or gen_id("chat")
-    system = ("Você é o Professor IA do MISSÃO APROV CONCURSO, tutor especialista em concursos públicos brasileiros. "
+    system = ("Você é o Professor IA do MISSÃO APROV, tutor especialista em concursos públicos brasileiros e ENEM. Adapte a explicação ao contexto do aluno. "
               "Explique de forma objetiva, didática, com exemplos práticos e destaque pegadinhas de banca. "
               "Use listas curtas e crie mnemônicos quando útil. Responda em português do Brasil, máximo 400 palavras.")
     chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=sid, system_message=system).with_model("openai", "gpt-5.4-mini")
@@ -554,6 +832,291 @@ async def chat_history(session_id: str, authorization: Optional[str] = Header(No
     return {"messages": msgs}
 
 
+# ============ ENEM / PLANO / RANKING ============
+@api_router.get("/enem")
+async def enem_overview(authorization: Optional[str] = Header(None)):
+    await require_user(authorization)
+    areas = ["linguagens", "ciencias-humanas", "ciencias-natureza", "matematica", "redacao"]
+    disciplinas = [d async for d in db.disciplinas.find({"id": {"$in": areas}}, {"_id": 0})]
+    counts = {}
+    for area in areas:
+        counts[area] = await db.questoes.count_documents({"disciplina": area, "deleted_at": {"$exists": False}})
+    return {"areas": disciplinas, "questoes_por_area": counts, "concurso_id": "enem-2026"}
+
+
+@api_router.get("/ranking")
+async def ranking(authorization: Optional[str] = Header(None)):
+    user = await require_user(authorization)
+    users = []
+    pos = 0
+    i = 0
+    async for u in db.users.find({"blocked": {"$ne": True}, "deleted_at": {"$exists": False}}, {"_id": 0, "password_hash": 0}).sort("xp", -1).limit(100):
+        i += 1
+        if u["user_id"] == user["user_id"]: pos = i
+        users.append({"posicao": i, "user_id": u["user_id"], "name": u.get("name", "Aluno"), "xp": u.get("xp", 0), "streak": u.get("streak", 0)})
+    return {"ranking": users, "minha_posicao": pos}
+
+
+class StudyPlanIn(BaseModel):
+    meta_questoes: int = 20
+    minutos_dia: int = 120
+    dias_semana: int = 5
+    disciplinas: List[str] = []
+
+
+@api_router.get("/plano-estudos")
+async def get_study_plan(authorization: Optional[str] = Header(None)):
+    user = await require_user(authorization)
+    plan = await db.study_plans.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    return {"plano": plan or {"meta_questoes": 20, "minutos_dia": 120, "dias_semana": 5, "disciplinas": []}}
+
+
+@api_router.put("/plano-estudos")
+async def save_study_plan(data: StudyPlanIn, authorization: Optional[str] = Header(None)):
+    user = await require_user(authorization)
+    doc = data.model_dump()
+    doc["updated_at"] = now_utc()
+    await db.study_plans.update_one({"user_id": user["user_id"]}, {"$set": doc}, upsert=True)
+    return {"ok": True, "plano": doc}
+
+
+# ============ ADMIN ============
+class AdminCreateUserIn(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+    is_admin: bool = False
+
+class ConcursoIn(BaseModel):
+    id: Optional[str] = None
+    nome: str
+    orgao: str
+    cargo: str
+    banca: str
+    estado: str = "Nacional"
+    vagas: int = 0
+    salario: float = 0
+    escolaridade: str = "Nível Superior"
+    situacao: str = "Previsto"
+    data_prova: Optional[str] = None
+    disciplinas: List[str] = []
+    area: str = "Geral"
+
+
+@api_router.get("/admin/stats")
+async def admin_stats(authorization: Optional[str] = Header(None)):
+    await require_admin(authorization)
+    total_users = await db.users.count_documents({})
+    blocked_users = await db.users.count_documents({"blocked": True})
+    total_concursos = await db.concursos.count_documents({"deleted_at": {"$exists": False}})
+    total_answers = await db.answers.count_documents({})
+    total_simulados = await db.simulados.count_documents({"status": "concluido"})
+    return {
+        "total_users": total_users,
+        "blocked_users": blocked_users,
+        "total_concursos": total_concursos,
+        "total_answers": total_answers,
+        "total_simulados": total_simulados,
+    }
+
+
+@api_router.get("/admin/users")
+async def admin_list_users(q: Optional[str] = None, authorization: Optional[str] = Header(None)):
+    await require_admin(authorization)
+    query: dict = {}
+    if q:
+        rgx = {"$regex": q, "$options": "i"}
+        query["$or"] = [{"name": rgx}, {"email": rgx}]
+    users = []
+    async for u in db.users.find(query, {"_id": 0, "password_hash": 0}).sort("created_at", -1).limit(200):
+        if isinstance(u.get("created_at"), datetime):
+            u["created_at"] = u["created_at"].isoformat()
+        users.append(u)
+    return {"users": users}
+
+
+@api_router.post("/admin/users")
+async def admin_create_user(data: AdminCreateUserIn, authorization: Optional[str] = Header(None)):
+    await require_admin(authorization)
+    existing = await db.users.find_one({"email": data.email.lower()})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email já cadastrado")
+    user_id = gen_id("user")
+    await db.users.insert_one({
+        "user_id": user_id, "email": data.email.lower(), "name": data.name,
+        "password_hash": hash_password(data.password), "auth_type": "password",
+        "created_at": now_utc(), "onboarded": False, "xp": 0, "streak": 0,
+        "last_study_date": None, "concurso_id": None,
+        "is_admin": data.is_admin, "blocked": False,
+    })
+    return {"ok": True, "user_id": user_id}
+
+
+@api_router.post("/admin/users/{user_id}/block")
+async def admin_block_user(user_id: str, authorization: Optional[str] = Header(None)):
+    admin = await require_admin(authorization)
+    if admin["user_id"] == user_id:
+        raise HTTPException(status_code=400, detail="Você não pode bloquear a própria conta")
+    r = await db.users.update_one({"user_id": user_id}, {"$set": {"blocked": True}})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    # invalidate all google sessions of this user
+    await db.user_sessions.delete_many({"user_id": user_id})
+    return {"ok": True}
+
+
+@api_router.post("/admin/users/{user_id}/unblock")
+async def admin_unblock_user(user_id: str, authorization: Optional[str] = Header(None)):
+    await require_admin(authorization)
+    r = await db.users.update_one({"user_id": user_id}, {"$set": {"blocked": False}})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    return {"ok": True}
+
+
+@api_router.delete("/admin/users/{user_id}")
+async def admin_delete_user(user_id: str, authorization: Optional[str] = Header(None)):
+    admin = await require_admin(authorization)
+    if admin["user_id"] == user_id:
+        raise HTTPException(status_code=400, detail="Você não pode excluir a própria conta")
+    r = await db.users.update_one({"user_id": user_id}, {"$set": {"deleted_at": now_utc(), "blocked": True}})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    await db.user_sessions.delete_many({"user_id": user_id})
+    return {"ok": True}
+
+
+@api_router.get("/admin/concursos")
+async def admin_list_concursos(authorization: Optional[str] = Header(None)):
+    await require_admin(authorization)
+    items = []
+    async for c in db.concursos.find({"deleted_at": {"$exists": False}}, {"_id": 0}).sort("nome", 1):
+        items.append(c)
+    return {"concursos": items}
+
+
+@api_router.post("/admin/concursos")
+async def admin_create_concurso(data: ConcursoIn, authorization: Optional[str] = Header(None)):
+    await require_admin(authorization)
+    cid = data.id or gen_id("cc")
+    if await db.concursos.find_one({"id": cid}):
+        raise HTTPException(status_code=400, detail="ID já existe")
+    doc = data.dict(); doc["id"] = cid; doc["created_at"] = now_utc()
+    await db.concursos.insert_one(doc)
+    return {"ok": True, "id": cid}
+
+
+@api_router.put("/admin/concursos/{concurso_id}")
+async def admin_update_concurso(concurso_id: str, data: ConcursoIn, authorization: Optional[str] = Header(None)):
+    await require_admin(authorization)
+    update = {k: v for k, v in data.dict().items() if k != "id" and v is not None}
+    update["updated_at"] = now_utc()
+    r = await db.concursos.update_one({"id": concurso_id}, {"$set": update})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Concurso não encontrado")
+    return {"ok": True}
+
+
+@api_router.delete("/admin/concursos/{concurso_id}")
+async def admin_delete_concurso(concurso_id: str, authorization: Optional[str] = Header(None)):
+    await require_admin(authorization)
+    r = await db.concursos.update_one({"id": concurso_id}, {"$set": {"deleted_at": now_utc()}})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Concurso não encontrado")
+    return {"ok": True}
+
+
+class AdminQuestionIn(BaseModel):
+    disciplina: str
+    assunto: str = ""
+    enunciado: str
+    alternativas: List[str]
+    correta: int
+    explicacao: str = ""
+    banca: str = "Própria"
+    ano: int = 2026
+    dificuldade: str = "media"
+    area: Optional[str] = None
+
+
+@api_router.get("/admin/questoes")
+async def admin_list_questoes(authorization: Optional[str] = Header(None)):
+    await require_admin(authorization)
+    items = [q async for q in db.questoes.find({"deleted_at": {"$exists": False}}, {"_id": 0}).limit(500)]
+    return {"questoes": items}
+
+
+@api_router.post("/admin/questoes")
+async def admin_create_questao(data: AdminQuestionIn, authorization: Optional[str] = Header(None)):
+    await require_admin(authorization)
+    if len(data.alternativas) < 2 or data.correta < 0 or data.correta >= len(data.alternativas):
+        raise HTTPException(status_code=400, detail="Alternativas/resposta correta inválidas")
+    doc = data.model_dump()
+    doc["id"] = gen_id("q")
+    doc["created_at"] = now_utc()
+    await db.questoes.insert_one(doc)
+    return {"ok": True, "id": doc["id"]}
+
+
+@api_router.put("/admin/questoes/{questao_id}")
+async def admin_update_questao(questao_id: str, data: AdminQuestionIn, authorization: Optional[str] = Header(None)):
+    await require_admin(authorization)
+    doc = data.model_dump()
+    doc["updated_at"] = now_utc()
+    r = await db.questoes.update_one({"id": questao_id}, {"$set": doc})
+    if not r.matched_count:
+        raise HTTPException(status_code=404, detail="Questão não encontrada")
+    return {"ok": True}
+
+
+@api_router.delete("/admin/questoes/{questao_id}")
+async def admin_delete_questao(questao_id: str, authorization: Optional[str] = Header(None)):
+    await require_admin(authorization)
+    r = await db.questoes.update_one({"id": questao_id}, {"$set": {"deleted_at": now_utc()}})
+    if not r.matched_count:
+        raise HTTPException(status_code=404, detail="Questão não encontrada")
+    return {"ok": True}
+
+
+class SuggestIn(BaseModel):
+    quantidade: int = 5
+    contexto: Optional[str] = None
+
+@api_router.post("/admin/concursos/suggest")
+async def admin_suggest_concursos(data: SuggestIn, authorization: Optional[str] = Header(None)):
+    """Usa IA para sugerir concursos previstos/em andamento no Brasil, para o admin aprovar."""
+    await require_admin(authorization)
+    from emergentintegrations.llm.chat import LlmChat, UserMessage
+    import json as _json
+
+    ctx = data.contexto or "concursos públicos brasileiros previstos, autorizados ou com edital publicado atualmente"
+    prompt = (
+        f"Liste {data.quantidade} concursos públicos brasileiros ({ctx}) em JSON puro (sem markdown). "
+        "Formato: {\"concursos\":[{\"nome\":\"...\",\"orgao\":\"...\",\"cargo\":\"...\",\"banca\":\"...\",\"estado\":\"...\","
+        "\"vagas\":numero,\"salario\":numero,\"escolaridade\":\"...\",\"situacao\":\"Previsto|Autorizado|Inscrições Abertas\","
+        "\"data_prova\":\"YYYY-MM-DD ou null\",\"area\":\"...\",\"disciplinas\":[\"portugues\",\"raciocinio-logico\",...]}]}. "
+        "Use apenas disciplinas comuns em português (portugues, matematica, raciocinio-logico, informatica, "
+        "direito-constitucional, direito-administrativo, direito-penal, direito-civil, direito-tributario, "
+        "direito-previdenciario, direito-trabalho, administracao-publica, contabilidade, atualidades, etica). "
+        "Retorne SOMENTE o JSON, sem explicações."
+    )
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=gen_id("admsug"),
+                   system_message="Você é um especialista em concursos públicos brasileiros. Responda APENAS em JSON válido.").with_model("openai", "gpt-5.4-mini")
+    try:
+        raw = await chat.send_message(UserMessage(text=prompt))
+        text = raw if isinstance(raw, str) else str(raw)
+        # extract JSON
+        text = text.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*", "", text)
+            text = re.sub(r"\s*```$", "", text)
+        parsed = _json.loads(text)
+        return {"sugestoes": parsed.get("concursos", [])}
+    except Exception as e:
+        logger.exception("suggest error")
+        raise HTTPException(status_code=500, detail=f"IA falhou: {e}")
+
+
 # ============ Root ============
 @api_router.get("/")
 async def root():
@@ -570,6 +1133,33 @@ async def startup():
     await db.users.create_index("user_id", unique=True)
     await db.user_sessions.create_index("session_token", unique=True)
     await db.user_sessions.create_index("expires_at", expireAfterSeconds=0)
+    await db.password_resets.create_index("token", unique=True)
+    await db.password_resets.create_index("expires_at", expireAfterSeconds=0)
+    await db.concursos.create_index("id", unique=True)
+    await db.disciplinas.create_index("id", unique=True)
+    await db.questoes.create_index("id", unique=True)
+    await db.favorites.create_index([("user_id", 1), ("questao_id", 1)], unique=True)
+    # Seed disciplinas
+    if await db.disciplinas.count_documents({}) == 0:
+        await db.disciplinas.insert_many([dict(d) for d in DISCIPLINAS])
+        logger.info(f"Seeded {len(DISCIPLINAS)} disciplinas")
+    else:
+        # Upsert any new disciplinas from static seed (e.g. after adding ENEM subjects)
+        for d in DISCIPLINAS:
+            await db.disciplinas.update_one({"id": d["id"]}, {"$setOnInsert": d}, upsert=True)
+    # Seed questions into MongoDB so admin-created content and app use the same source
+    if await db.questoes.count_documents({}) == 0:
+        await db.questoes.insert_many([dict(q) for q in QUESTOES])
+        logger.info(f"Seeded {len(QUESTOES)} questoes")
+    # Seed concursos
+    if await db.concursos.count_documents({}) == 0:
+        await db.concursos.insert_many([dict(c) for c in CONCURSOS])
+        logger.info(f"Seeded {len(CONCURSOS)} concursos")
+    else:
+        for c in CONCURSOS:
+            await db.concursos.update_one({"id": c["id"]}, {"$setOnInsert": c}, upsert=True)
+    # Ensure admin flag on ADMIN_EMAIL user if exists
+    await db.users.update_one({"email": ADMIN_EMAIL}, {"$set": {"is_admin": True}})
     logger.info("MISSÃO APROV CONCURSO API started")
 
 

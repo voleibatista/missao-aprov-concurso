@@ -60,6 +60,28 @@ export default function Estudar() {
         <Ionicons name="chevron-forward" size={22} color={colors.brandPrimary} />
       </Pressable>
 
+      <Text style={[styles.h2, { marginTop: spacing.xl }]}>Ferramentas de estudo</Text>
+      <Pressable onPress={() => router.push('/enem')} style={styles.bigCard}>
+        <View style={[styles.bigIcon, { backgroundColor: '#7C3AED' }]}><Ionicons name="school" size={26} color="#fff" /></View>
+        <View style={{ flex: 1 }}><Text style={styles.bigTitle}>ENEM</Text><Text style={styles.bigDesc}>Áreas, questões e simulados</Text></View><Ionicons name="chevron-forward" size={22} color={colors.brandPrimary} />
+      </Pressable>
+      <Pressable onPress={() => router.push('/caderno-erros')} style={styles.bigCard}>
+        <View style={[styles.bigIcon, { backgroundColor: colors.error }]}><Ionicons name="refresh-circle" size={26} color="#fff" /></View>
+        <View style={{ flex: 1 }}><Text style={styles.bigTitle}>Caderno de erros</Text><Text style={styles.bigDesc}>Revise o que você errou</Text></View><Ionicons name="chevron-forward" size={22} color={colors.brandPrimary} />
+      </Pressable>
+      <Pressable onPress={() => router.push('/favoritos')} style={styles.bigCard}>
+        <View style={[styles.bigIcon, { backgroundColor: '#DB2777' }]}><Ionicons name="heart" size={26} color="#fff" /></View>
+        <View style={{ flex: 1 }}><Text style={styles.bigTitle}>Favoritos</Text><Text style={styles.bigDesc}>Questões salvas para revisar</Text></View><Ionicons name="chevron-forward" size={22} color={colors.brandPrimary} />
+      </Pressable>
+      <Pressable onPress={() => router.push('/pomodoro')} style={styles.bigCard}>
+        <View style={[styles.bigIcon, { backgroundColor: '#EA580C' }]}><Ionicons name="stopwatch" size={26} color="#fff" /></View>
+        <View style={{ flex: 1 }}><Text style={styles.bigTitle}>Pomodoro</Text><Text style={styles.bigDesc}>Foco com ciclos de estudo</Text></View><Ionicons name="chevron-forward" size={22} color={colors.brandPrimary} />
+      </Pressable>
+      <Pressable onPress={() => router.push('/ranking')} style={styles.bigCard}>
+        <View style={[styles.bigIcon, { backgroundColor: colors.warning }]}><Ionicons name="trophy" size={26} color="#fff" /></View>
+        <View style={{ flex: 1 }}><Text style={styles.bigTitle}>Ranking</Text><Text style={styles.bigDesc}>Compare seu XP e sequência</Text></View><Ionicons name="chevron-forward" size={22} color={colors.brandPrimary} />
+      </Pressable>
+
       <Text style={[styles.h2, { marginTop: spacing.xl }]}>Disciplinas</Text>
       <View style={styles.discGrid}>
         {disciplinas.map((d) => (

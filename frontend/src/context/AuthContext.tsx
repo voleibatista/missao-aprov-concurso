@@ -10,6 +10,8 @@ type User = {
   concurso_id?: string | null;
   onboarded?: boolean;
   picture?: string;
+  is_admin?: boolean;
+  blocked?: boolean;
 };
 
 type AuthCtx = {

@@ -80,3 +80,21 @@ memory/test_credentials.md
 
 # Mobile development
 android-sdk/
+# Environment secrets
+backend/.env
+frontend/.env
+.env
+*.env
+
+# Backups
+backend_backup/
+frontend_backup/
+backend/*.backup
+frontend/app.backup/
+
+# Emergent temporary files
+.emergent/markers/.restore-complete
+
+# Local generated files
+__pycache__/
+*.pyc

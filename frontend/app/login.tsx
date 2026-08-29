@@ -82,6 +82,12 @@ export default function Login() {
 
         {err && <Text testID="auth-error" style={styles.error}>{err}</Text>}
 
+        {mode === 'login' && (
+          <Pressable testID="forgot-password-link" onPress={() => router.push('/forgot-password')} style={{ alignSelf: 'flex-end', marginBottom: spacing.sm }}>
+            <Text style={{ color: colors.brandPrimary, fontSize: 13, fontWeight: '600' }}>Esqueci minha senha</Text>
+          </Pressable>
+        )}
+
         <Pressable testID="auth-submit-btn" onPress={submit} disabled={loading} style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.9 }]}>
           {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>{mode === 'login' ? 'Entrar' : 'Criar conta'}</Text>}
         </Pressable>

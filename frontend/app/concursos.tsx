@@ -24,12 +24,23 @@ export default function Concursos() {
   };
 
   const escolher = async (id: string) => {
+    if (user?.concurso_id === id) return;
+
     setSaving(id);
+
     try {
-      await apiFetch('/onboarding', { method: 'POST', body: JSON.stringify({ concurso_id: id, horas_dia: 3, nivel: 'iniciante' }) });
+      await apiFetch('/auth/concurso', {
+        method: 'PATCH',
+        body: JSON.stringify({ concurso_id: id }),
+      });
+
       await refresh();
       router.replace('/(tabs)');
-    } finally { setSaving(null); }
+    } catch (error) {
+      console.error('Erro ao trocar concurso:', error);
+    } finally {
+      setSaving(null);
+    }
   };
 
   return (
@@ -77,11 +88,24 @@ export default function Concursos() {
                 </View>
                 <Pressable
                   testID={`escolher-${c.id}`}
-                  disabled={saving === c.id || active}
-                  onPress={() => escolher(c.id)}
-                  style={[styles.btn, active && { backgroundColor: colors.success }]}
+                  disabled={saving === c.id}
+                  onPress={() => {
+                    if (!active) {
+                      escolher(c.id);
+                    }
+                  }}
+                  style={[
+                    styles.btn,
+                    active && { backgroundColor: colors.success, opacity: 0.9 }
+                  ]}
                 >
-                  {saving === c.id ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>{active ? '✓ Concurso ativo' : 'Escolher este concurso'}</Text>}
+                  {saving === c.id ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.btnText}>
+                      {active ? '✓ Concurso ativo' : 'Trocar para este concurso'}
+                    </Text>
+                  )}
                 </Pressable>
               </View>
             );
