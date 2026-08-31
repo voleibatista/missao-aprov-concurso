@@ -1134,6 +1134,76 @@ async def gerar_semana(
     }
 
 
+class StudyReminderIn(BaseModel):
+    notification_id: Optional[str] = None
+    hora: Optional[int] = None
+
+
+@api_router.patch("/calendario/{task_id}/lembrete")
+async def atualizar_lembrete_calendario(
+    task_id: str,
+    data: StudyReminderIn,
+    authorization: Optional[str] = Header(None)
+):
+    user = await require_user(authorization)
+
+    tarefa = await db.study_tasks.find_one({
+        "task_id": task_id,
+        "user_id": user["user_id"],
+    })
+
+    if not tarefa:
+        raise HTTPException(
+            status_code=404,
+            detail="Tarefa não encontrada"
+        )
+
+    if data.notification_id:
+        hora = max(0, min(23, int(data.hora or 19)))
+
+        await db.study_tasks.update_one(
+            {
+                "task_id": task_id,
+                "user_id": user["user_id"],
+            },
+            {
+                "$set": {
+                    "notification_id": data.notification_id,
+                    "lembrete_hora": hora,
+                    "updated_at": now_utc(),
+                }
+            }
+        )
+
+        return {
+            "ok": True,
+            "notification_id": data.notification_id,
+            "lembrete_hora": hora,
+        }
+
+    await db.study_tasks.update_one(
+        {
+            "task_id": task_id,
+            "user_id": user["user_id"],
+        },
+        {
+            "$unset": {
+                "notification_id": "",
+                "lembrete_hora": "",
+            },
+            "$set": {
+                "updated_at": now_utc(),
+            }
+        }
+    )
+
+    return {
+        "ok": True,
+        "notification_id": None,
+        "lembrete_hora": None,
+    }
+
+
 @api_router.patch("/calendario/{task_id}")
 async def concluir_tarefa_calendario(
     task_id: str,

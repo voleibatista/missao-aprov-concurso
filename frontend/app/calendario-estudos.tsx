@@ -12,7 +12,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import { apiFetch } from '@/src/api/client';
-import { agendarLembreteEstudo } from '@/src/utils/notifications';
+import { agendarLembreteEstudo, cancelarLembrete } from '@/src/utils/notifications';
 import { colors, spacing, radius, shadow } from '@/src/theme/tokens';
 
 type Tarefa = {
@@ -25,6 +25,8 @@ type Tarefa = {
   minutos_estudados?: number;
   meta_questoes: number;
   concluida: boolean;
+  notification_id?: string;
+  lembrete_hora?: number;
 };
 
 type Progresso = {
@@ -145,6 +147,12 @@ export default function CalendarioEstudos() {
   const criarLembrete = (tarefa: Tarefa) => {
     const agendar = async (hora: number) => {
       try {
+        if (tarefa.notification_id) {
+          try {
+            await cancelarLembrete(tarefa.notification_id);
+          } catch {}
+        }
+
         const id = await agendarLembreteEstudo({
           data: tarefa.data,
           hora,
@@ -161,6 +169,16 @@ export default function CalendarioEstudos() {
           return;
         }
 
+        await apiFetch(`/calendario/${tarefa.task_id}/lembrete`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            notification_id: id,
+            hora,
+          }),
+        });
+
+        await carregar();
+
         Alert.alert(
           'Lembrete criado',
           `Você será lembrado às ${String(hora).padStart(2, '0')}h para estudar ${tarefa.disciplina_nome}.`
@@ -173,17 +191,76 @@ export default function CalendarioEstudos() {
       }
     };
 
-    Alert.alert(
-      'Escolha o horário',
-      `Quando você quer ser lembrado de estudar ${tarefa.disciplina_nome}?`,
-      [
-        { text: '08h', onPress: () => agendar(8) },
-        { text: '12h', onPress: () => agendar(12) },
-        { text: '19h', onPress: () => agendar(19) },
-        { text: '21h', onPress: () => agendar(21) },
-        { text: 'Cancelar', style: 'cancel' },
-      ]
-    );
+    const escolherHorario = () => {
+      Alert.alert(
+        'Escolha o horário',
+        `Quando você quer ser lembrado de estudar ${tarefa.disciplina_nome}?`,
+        [
+          { text: '08h', onPress: () => agendar(8) },
+          { text: '12h', onPress: () => agendar(12) },
+          { text: '19h', onPress: () => agendar(19) },
+          { text: '21h', onPress: () => agendar(21) },
+          { text: 'Cancelar', style: 'cancel' },
+        ]
+      );
+    };
+
+    const cancelar = async () => {
+      try {
+        if (tarefa.notification_id) {
+          try {
+            await cancelarLembrete(tarefa.notification_id);
+          } catch {}
+        }
+
+        await apiFetch(`/calendario/${tarefa.task_id}/lembrete`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            notification_id: null,
+            hora: null,
+          }),
+        });
+
+        await carregar();
+
+        Alert.alert(
+          'Lembrete cancelado',
+          'A notificação desta tarefa foi removida.'
+        );
+      } catch (e: any) {
+        Alert.alert(
+          'Erro',
+          e?.message || 'Não foi possível cancelar o lembrete.'
+        );
+      }
+    };
+
+    if (tarefa.notification_id) {
+      Alert.alert(
+        'Lembrete configurado',
+        `Esta tarefa está programada para ${String(
+          tarefa.lembrete_hora ?? 19
+        ).padStart(2, '0')}h.`,
+        [
+          {
+            text: 'Reagendar',
+            onPress: escolherHorario,
+          },
+          {
+            text: 'Cancelar lembrete',
+            style: 'destructive',
+            onPress: cancelar,
+          },
+          {
+            text: 'Fechar',
+            style: 'cancel',
+          },
+        ]
+      );
+      return;
+    }
+
+    escolherHorario();
   };
 
   const formatarData = (data: string) => {
@@ -389,7 +466,11 @@ export default function CalendarioEstudos() {
                   size={16}
                   color={colors.brandPrimary}
                 />
-                <Text style={styles.reminderButtonText}>Lembrar</Text>
+                <Text style={styles.reminderButtonText}>
+                  {tarefa.notification_id
+                    ? `${String(tarefa.lembrete_hora ?? 19).padStart(2, '0')}h`
+                    : 'Lembrar'}
+                </Text>
               </Pressable>
 
               <Pressable
