@@ -317,6 +317,25 @@ export default function CalendarioEstudos() {
               </View>
 
               <Pressable
+                onPress={() =>
+                  router.push({
+                    pathname: '/pomodoro',
+                    params: {
+                      task_id: tarefa.task_id,
+                      disciplina: tarefa.disciplina_nome,
+                    },
+                  })
+                }
+                style={styles.studyNow}
+              >
+                <Ionicons
+                  name="play"
+                  size={16}
+                  color={colors.brandPrimary}
+                />
+              </Pressable>
+
+              <Pressable
                 onPress={() => alternar(tarefa)}
                 disabled={busy}
                 style={[
@@ -557,6 +576,17 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.onSurfaceTertiary,
     marginRight: 6,
+  },
+
+  studyNow: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.brandPrimary,
   },
 
   check: {

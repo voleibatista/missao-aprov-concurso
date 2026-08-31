@@ -1187,6 +1187,101 @@ async def excluir_tarefa_calendario(
 
 
 
+
+# ============ SESSOES DE ESTUDO / POMODORO ============
+
+class StudySessionIn(BaseModel):
+    task_id: Optional[str] = None
+    minutos: int = 25
+
+
+@api_router.post("/sessoes-estudo")
+async def registrar_sessao_estudo(
+    data: StudySessionIn,
+    authorization: Optional[str] = Header(None)
+):
+    user = await require_user(authorization)
+
+    minutos = max(1, min(720, int(data.minutos)))
+
+    task = None
+
+    if data.task_id:
+        task = await db.study_tasks.find_one({
+            "task_id": data.task_id,
+            "user_id": user["user_id"],
+        })
+
+        if not task:
+            raise HTTPException(
+                status_code=404,
+                detail="Tarefa do calendário não encontrada"
+            )
+
+    session_id = gen_id("session")
+
+    doc = {
+        "session_id": session_id,
+        "user_id": user["user_id"],
+        "task_id": data.task_id,
+        "minutos": minutos,
+        "created_at": now_utc(),
+    }
+
+    await db.study_sessions.insert_one(doc)
+
+    if task:
+        await db.study_tasks.update_one(
+            {
+                "task_id": data.task_id,
+                "user_id": user["user_id"],
+            },
+            {
+                "$inc": {
+                    "minutos_estudados": minutos
+                },
+                "$set": {
+                    "updated_at": now_utc()
+                }
+            }
+        )
+
+    doc.pop("_id", None)
+
+    return {
+        "ok": True,
+        "sessao": doc
+    }
+
+
+@api_router.get("/sessoes-estudo")
+async def listar_sessoes_estudo(
+    authorization: Optional[str] = Header(None)
+):
+    user = await require_user(authorization)
+
+    sessoes = []
+
+    async for sessao in db.study_sessions.find(
+        {"user_id": user["user_id"]},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(50):
+        if sessao.get("created_at"):
+            sessao["created_at"] = sessao["created_at"].isoformat()
+
+        sessoes.append(sessao)
+
+    total_minutos = sum(
+        int(s.get("minutos", 0))
+        for s in sessoes
+    )
+
+    return {
+        "sessoes": sessoes,
+        "total_minutos": total_minutos
+    }
+
+
 # ============ ADMIN ============
 class AdminCreateUserIn(BaseModel):
     name: str
