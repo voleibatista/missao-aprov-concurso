@@ -1717,50 +1717,6 @@ async def root():
     return {"message": "MISSÃO APROV CONCURSO API", "version": "1.0"}
 
 
-app.include_router(api_router)
-app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-
-
-@app.on_event("startup")
-async def startup():
-    await db.users.create_index("email", unique=True)
-    await db.users.create_index("user_id", unique=True)
-    await db.user_sessions.create_index("session_token", unique=True)
-    await db.user_sessions.create_index("expires_at", expireAfterSeconds=0)
-    await db.password_resets.create_index("token", unique=True)
-    await db.password_resets.create_index("expires_at", expireAfterSeconds=0)
-    await db.concursos.create_index("id", unique=True)
-    await db.disciplinas.create_index("id", unique=True)
-    await db.questoes.create_index("id", unique=True)
-    await db.favorites.create_index([("user_id", 1), ("questao_id", 1)], unique=True)
-    # Seed disciplinas
-    if await db.disciplinas.count_documents({}) == 0:
-        await db.disciplinas.insert_many([dict(d) for d in DISCIPLINAS])
-        logger.info(f"Seeded {len(DISCIPLINAS)} disciplinas")
-    else:
-        # Upsert any new disciplinas from static seed (e.g. after adding ENEM subjects)
-        for d in DISCIPLINAS:
-            await db.disciplinas.update_one({"id": d["id"]}, {"$setOnInsert": d}, upsert=True)
-    # Seed questions into MongoDB so admin-created content and app use the same source
-    if await db.questoes.count_documents({}) == 0:
-        await db.questoes.insert_many([dict(q) for q in QUESTOES])
-        logger.info(f"Seeded {len(QUESTOES)} questoes")
-    # Seed concursos
-    if await db.concursos.count_documents({}) == 0:
-        await db.concursos.insert_many([dict(c) for c in CONCURSOS])
-        logger.info(f"Seeded {len(CONCURSOS)} concursos")
-    else:
-        for c in CONCURSOS:
-            await db.concursos.update_one({"id": c["id"]}, {"$setOnInsert": c}, upsert=True)
-    # Ensure admin flag on ADMIN_EMAIL user if exists
-    await db.users.update_one({"email": ADMIN_EMAIL}, {"$set": {"is_admin": True}})
-    logger.info("MISSÃO APROV CONCURSO API started")
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    client.close()
-
 # ============ CONQUISTAS / NIVEIS ============
 
 @api_router.get("/conquistas")
@@ -1912,3 +1868,49 @@ async def listar_conquistas(
         "total": len(conquistas),
         "conquistas": conquistas,
     }
+
+
+app.include_router(api_router)
+app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+
+@app.on_event("startup")
+async def startup():
+    await db.users.create_index("email", unique=True)
+    await db.users.create_index("user_id", unique=True)
+    await db.user_sessions.create_index("session_token", unique=True)
+    await db.user_sessions.create_index("expires_at", expireAfterSeconds=0)
+    await db.password_resets.create_index("token", unique=True)
+    await db.password_resets.create_index("expires_at", expireAfterSeconds=0)
+    await db.concursos.create_index("id", unique=True)
+    await db.disciplinas.create_index("id", unique=True)
+    await db.questoes.create_index("id", unique=True)
+    await db.favorites.create_index([("user_id", 1), ("questao_id", 1)], unique=True)
+    # Seed disciplinas
+    if await db.disciplinas.count_documents({}) == 0:
+        await db.disciplinas.insert_many([dict(d) for d in DISCIPLINAS])
+        logger.info(f"Seeded {len(DISCIPLINAS)} disciplinas")
+    else:
+        # Upsert any new disciplinas from static seed (e.g. after adding ENEM subjects)
+        for d in DISCIPLINAS:
+            await db.disciplinas.update_one({"id": d["id"]}, {"$setOnInsert": d}, upsert=True)
+    # Seed questions into MongoDB so admin-created content and app use the same source
+    if await db.questoes.count_documents({}) == 0:
+        await db.questoes.insert_many([dict(q) for q in QUESTOES])
+        logger.info(f"Seeded {len(QUESTOES)} questoes")
+    # Seed concursos
+    if await db.concursos.count_documents({}) == 0:
+        await db.concursos.insert_many([dict(c) for c in CONCURSOS])
+        logger.info(f"Seeded {len(CONCURSOS)} concursos")
+    else:
+        for c in CONCURSOS:
+            await db.concursos.update_one({"id": c["id"]}, {"$setOnInsert": c}, upsert=True)
+    # Ensure admin flag on ADMIN_EMAIL user if exists
+    await db.users.update_one({"email": ADMIN_EMAIL}, {"$set": {"is_admin": True}})
+    logger.info("MISSÃO APROV CONCURSO API started")
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    client.close()
+
