@@ -959,6 +959,234 @@ async def save_study_plan(data: StudyPlanIn, authorization: Optional[str] = Head
     return {"ok": True, "plano": doc}
 
 
+
+# ============ CALENDARIO DE ESTUDOS ============
+
+class StudyTaskCompleteIn(BaseModel):
+    concluida: bool
+
+
+@api_router.get("/calendario")
+async def get_calendario(
+    inicio: Optional[str] = None,
+    fim: Optional[str] = None,
+    authorization: Optional[str] = Header(None)
+):
+    user = await require_user(authorization)
+
+    query = {
+        "user_id": user["user_id"]
+    }
+
+    if inicio or fim:
+        query["data"] = {}
+        if inicio:
+            query["data"]["$gte"] = inicio
+        if fim:
+            query["data"]["$lte"] = fim
+
+    tarefas = []
+
+    async for t in db.study_tasks.find(
+        query,
+        {"_id": 0}
+    ).sort("data", 1):
+        tarefas.append(t)
+
+    total = len(tarefas)
+    concluidas = sum(1 for t in tarefas if t.get("concluida"))
+
+    minutos_planejados = sum(
+        int(t.get("minutos", 0)) for t in tarefas
+    )
+
+    minutos_concluidos = sum(
+        int(t.get("minutos", 0))
+        for t in tarefas
+        if t.get("concluida")
+    )
+
+    percentual = round(
+        (concluidas / total) * 100,
+        1
+    ) if total else 0
+
+    return {
+        "tarefas": tarefas,
+        "progresso": {
+            "total": total,
+            "concluidas": concluidas,
+            "percentual": percentual,
+            "minutos_planejados": minutos_planejados,
+            "minutos_concluidos": minutos_concluidos,
+        }
+    }
+
+
+@api_router.post("/calendario/gerar-semana")
+async def gerar_semana(
+    authorization: Optional[str] = Header(None)
+):
+    user = await require_user(authorization)
+
+    plano = await db.study_plans.find_one(
+        {"user_id": user["user_id"]},
+        {"_id": 0}
+    )
+
+    if not plano:
+        raise HTTPException(
+            status_code=400,
+            detail="Configure primeiro seu Plano de Estudos"
+        )
+
+    disciplinas_ids = plano.get("disciplinas", [])
+
+    if not disciplinas_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="Selecione pelo menos uma disciplina no Plano de Estudos"
+        )
+
+    dias_semana = max(
+        1,
+        min(7, int(plano.get("dias_semana", 5)))
+    )
+
+    minutos_dia = max(
+        30,
+        int(plano.get("minutos_dia", 120))
+    )
+
+    meta_questoes = max(
+        1,
+        int(plano.get("meta_questoes", 20))
+    )
+
+    disciplinas = {}
+
+    async for d in db.disciplinas.find(
+        {"id": {"$in": disciplinas_ids}},
+        {"_id": 0}
+    ):
+        disciplinas[d["id"]] = d
+
+    hoje = now_utc().date()
+
+    segunda = hoje - timedelta(days=hoje.weekday())
+
+    criadas = []
+
+    for i in range(dias_semana):
+        dia = segunda + timedelta(days=i)
+
+        disciplina_id = disciplinas_ids[
+            i % len(disciplinas_ids)
+        ]
+
+        disciplina = disciplinas.get(
+            disciplina_id,
+            {"nome": disciplina_id}
+        )
+
+        data_str = dia.isoformat()
+
+        existente = await db.study_tasks.find_one({
+            "user_id": user["user_id"],
+            "data": data_str,
+            "gerada_pelo_plano": True,
+        })
+
+        if existente:
+            continue
+
+        task_id = gen_id("task")
+
+        doc = {
+            "task_id": task_id,
+            "user_id": user["user_id"],
+            "data": data_str,
+            "disciplina_id": disciplina_id,
+            "disciplina_nome": disciplina.get(
+                "nome",
+                disciplina_id
+            ),
+            "titulo": f"Estudar {disciplina.get('nome', disciplina_id)}",
+            "minutos": minutos_dia,
+            "meta_questoes": meta_questoes,
+            "concluida": False,
+            "gerada_pelo_plano": True,
+            "created_at": now_utc(),
+        }
+
+        await db.study_tasks.insert_one(doc)
+
+        doc.pop("_id", None)
+        criadas.append(doc)
+
+    return {
+        "ok": True,
+        "tarefas_criadas": len(criadas),
+        "tarefas": criadas,
+        "inicio_semana": segunda.isoformat(),
+    }
+
+
+@api_router.patch("/calendario/{task_id}")
+async def concluir_tarefa_calendario(
+    task_id: str,
+    data: StudyTaskCompleteIn,
+    authorization: Optional[str] = Header(None)
+):
+    user = await require_user(authorization)
+
+    result = await db.study_tasks.update_one(
+        {
+            "task_id": task_id,
+            "user_id": user["user_id"],
+        },
+        {
+            "$set": {
+                "concluida": data.concluida,
+                "updated_at": now_utc(),
+            }
+        }
+    )
+
+    if result.matched_count == 0:
+        raise HTTPException(
+            status_code=404,
+            detail="Tarefa não encontrada"
+        )
+
+    return {
+        "ok": True,
+        "concluida": data.concluida
+    }
+
+
+@api_router.delete("/calendario/{task_id}")
+async def excluir_tarefa_calendario(
+    task_id: str,
+    authorization: Optional[str] = Header(None)
+):
+    user = await require_user(authorization)
+
+    result = await db.study_tasks.delete_one({
+        "task_id": task_id,
+        "user_id": user["user_id"],
+    })
+
+    if result.deleted_count == 0:
+        raise HTTPException(
+            status_code=404,
+            detail="Tarefa não encontrada"
+        )
+
+    return {"ok": True}
+
+
+
 # ============ ADMIN ============
 class AdminCreateUserIn(BaseModel):
     name: str

@@ -236,6 +236,15 @@ export default function PlanoEstudos() {
       </View>
 
       <Pressable
+        onPress={() => router.push('/calendario-estudos')}
+        style={styles.calendarButton}
+      >
+        <Ionicons name="calendar-outline" size={20} color={colors.brandPrimary} />
+        <Text style={styles.calendarButtonText}>Ver Calendário de Estudos</Text>
+        <Ionicons name="chevron-forward" size={20} color={colors.brandPrimary} />
+      </Pressable>
+
+      <Pressable
         onPress={salvar}
         disabled={saving}
         style={({ pressed }) => [
@@ -476,6 +485,25 @@ const styles = StyleSheet.create({
 
   disciplinaTextAtiva: {
     color: colors.brandPrimary,
+  },
+
+  calendarButton: {
+    marginTop: spacing.xl,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
+  },
+
+  calendarButtonText: {
+    flex: 1,
+    color: colors.brandPrimary,
+    fontSize: 14,
+    fontWeight: '700',
   },
 
   save: {
