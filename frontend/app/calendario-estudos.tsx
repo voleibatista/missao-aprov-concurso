@@ -21,6 +21,7 @@ type Tarefa = {
   disciplina_nome: string;
   titulo: string;
   minutos: number;
+  minutos_estudados?: number;
   meta_questoes: number;
   concluida: boolean;
 };
@@ -301,7 +302,7 @@ export default function CalendarioEstudos() {
                   />
 
                   <Text style={styles.metaText}>
-                    {tarefa.minutos} min
+                    {tarefa.minutos_estudados ?? 0} / {tarefa.minutos} min
                   </Text>
 
                   <Ionicons
@@ -313,6 +314,24 @@ export default function CalendarioEstudos() {
                   <Text style={styles.metaText}>
                     {tarefa.meta_questoes} questões
                   </Text>
+                </View>
+
+                <View style={styles.taskProgressTrack}>
+                  <View
+                    style={[
+                      styles.taskProgressBar,
+                      {
+                        width: `${Math.min(
+                          100,
+                          Math.round(
+                            ((tarefa.minutos_estudados ?? 0) /
+                              Math.max(tarefa.minutos, 1)) *
+                              100
+                          )
+                        )}%`,
+                      },
+                    ]}
+                  />
                 </View>
               </View>
 
@@ -576,6 +595,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.onSurfaceTertiary,
     marginRight: 6,
+  },
+
+  taskProgressTrack: {
+    height: 6,
+    backgroundColor: colors.surface,
+    borderRadius: 999,
+    overflow: 'hidden',
+    marginTop: 8,
+  },
+
+  taskProgressBar: {
+    height: '100%',
+    backgroundColor: colors.brandPrimary,
+    borderRadius: 999,
   },
 
   studyNow: {

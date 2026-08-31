@@ -1001,9 +1001,11 @@ async def get_calendario(
     )
 
     minutos_concluidos = sum(
-        int(t.get("minutos", 0))
+        min(
+            int(t.get("minutos_estudados", 0)),
+            int(t.get("minutos", 0))
+        )
         for t in tarefas
-        if t.get("concluida")
     )
 
     percentual = round(
@@ -1231,18 +1233,24 @@ async def registrar_sessao_estudo(
     await db.study_sessions.insert_one(doc)
 
     if task:
+        novos_minutos = int(task.get("minutos_estudados", 0)) + minutos
+        meta_minutos = int(task.get("minutos", 0))
+
+        update_data = {
+            "minutos_estudados": novos_minutos,
+            "updated_at": now_utc(),
+        }
+
+        if meta_minutos > 0 and novos_minutos >= meta_minutos:
+            update_data["concluida"] = True
+
         await db.study_tasks.update_one(
             {
                 "task_id": data.task_id,
                 "user_id": user["user_id"],
             },
             {
-                "$inc": {
-                    "minutos_estudados": minutos
-                },
-                "$set": {
-                    "updated_at": now_utc()
-                }
+                "$set": update_data
             }
         )
 
