@@ -1719,11 +1719,7 @@ async def root():
 
 # ============ CONQUISTAS / NIVEIS ============
 
-@api_router.get("/conquistas")
-async def listar_conquistas(
-    authorization: Optional[str] = Header(None)
-):
-    user = await require_user(authorization)
+async def calcular_conquistas_usuario(user):
     uid = user["user_id"]
 
     xp = int(user.get("xp", 0))
@@ -1851,11 +1847,23 @@ async def listar_conquistas(
         },
     ]
 
+    return conquistas
+
+
+@api_router.get("/conquistas")
+async def listar_conquistas(
+    authorization: Optional[str] = Header(None)
+):
+    user = await require_user(authorization)
+
+    conquistas = await calcular_conquistas_usuario(user)
+
     desbloqueadas = sum(
         1 for conquista in conquistas
         if conquista["desbloqueada"]
     )
 
+    xp = int(user.get("xp", 0))
     nivel = (xp // 100) + 1
     xp_nivel = xp % 100
 
@@ -1867,6 +1875,57 @@ async def listar_conquistas(
         "desbloqueadas": desbloqueadas,
         "total": len(conquistas),
         "conquistas": conquistas,
+    }
+
+
+class ConquistasVistasIn(BaseModel):
+    ids: List[str]
+
+
+@api_router.get("/conquistas/novas")
+async def conquistas_novas(
+    authorization: Optional[str] = Header(None)
+):
+    user = await require_user(authorization)
+
+    conquistas = await calcular_conquistas_usuario(user)
+
+    vistas = set(user.get("conquistas_vistas", []))
+
+    novas = [
+        c for c in conquistas
+        if c["desbloqueada"] and c["id"] not in vistas
+    ]
+
+    return {
+        "novas": novas
+    }
+
+
+@api_router.post("/conquistas/vistas")
+async def marcar_conquistas_vistas(
+    data: ConquistasVistasIn,
+    authorization: Optional[str] = Header(None)
+):
+    user = await require_user(authorization)
+
+    ids = list(dict.fromkeys(data.ids))
+
+    if ids:
+        await db.users.update_one(
+            {"user_id": user["user_id"]},
+            {
+                "$addToSet": {
+                    "conquistas_vistas": {
+                        "$each": ids
+                    }
+                }
+            }
+        )
+
+    return {
+        "ok": True,
+        "ids": ids
     }
 
 

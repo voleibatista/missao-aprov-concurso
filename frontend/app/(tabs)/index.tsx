@@ -22,6 +22,12 @@ type Dashboard = {
     minutos_7_dias: number;
     sessoes_7_dias: number;
   };
+  conquista_nova?: {
+    id: string;
+    titulo: string;
+    descricao: string;
+    icone: string;
+  } | null;
 };
 
 export default function Home() {
@@ -33,6 +39,14 @@ export default function Home() {
   const load = useCallback(async () => {
     try {
       const d = await apiFetch('/dashboard');
+
+      try {
+        const conquistas = await apiFetch('/conquistas/novas');
+        d.conquista_nova = conquistas.novas?.[0] || null;
+      } catch {
+        d.conquista_nova = null;
+      }
+
       setData(d);
       if (d.user.concurso_id) {
         const c = await apiFetch(`/concursos/${d.user.concurso_id}`);
@@ -78,6 +92,52 @@ export default function Home() {
         </View>
         <View style={styles.ctaArrow}><Ionicons name="arrow-forward" size={20} color="#fff" /></View>
       </Pressable>
+
+      {data.conquista_nova && (
+        <Pressable
+          onPress={async () => {
+            try {
+              await apiFetch('/conquistas/vistas', {
+                method: 'POST',
+                body: JSON.stringify({
+                  ids: [data.conquista_nova!.id],
+                }),
+              });
+            } catch {}
+
+            router.push('/conquistas');
+          }}
+          style={styles.achievementBanner}
+        >
+          <View style={styles.achievementIcon}>
+            <Ionicons
+              name={(data.conquista_nova.icone || 'trophy') as any}
+              size={24}
+              color={colors.warning}
+            />
+          </View>
+
+          <View style={{ flex: 1 }}>
+            <Text style={styles.achievementLabel}>
+              NOVA CONQUISTA
+            </Text>
+
+            <Text style={styles.achievementTitle}>
+              {data.conquista_nova.titulo}
+            </Text>
+
+            <Text style={styles.achievementDesc}>
+              {data.conquista_nova.descricao}
+            </Text>
+          </View>
+
+          <Ionicons
+            name="chevron-forward"
+            size={20}
+            color={colors.warning}
+          />
+        </Pressable>
+      )}
 
       <View style={styles.metricsGrid}>
         <View style={styles.metricCard} testID="metric-questoes"><Ionicons name="checkmark-done" size={20} color={colors.brandPrimary} /><Text style={styles.metricVal}>{data.questoes_respondidas}</Text><Text style={styles.metricLabel}>Questões</Text></View>
@@ -176,4 +236,48 @@ const styles = StyleSheet.create({
   discRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm, backgroundColor: colors.surfaceSecondary, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
   discName: { color: colors.onSurface, fontWeight: '600', fontSize: 13, marginBottom: 6 },
   discPct: { color: colors.onSurface, fontWeight: '800', fontSize: 14, minWidth: 44, textAlign: 'right' },
+
+  achievementBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginHorizontal: spacing.xl,
+    marginTop: spacing.lg,
+    backgroundColor: '#FFFBEB',
+    borderRadius: radius.md,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    ...shadow.card,
+  },
+
+  achievementIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: '#FEF3C7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  achievementLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.warning,
+    letterSpacing: 0.6,
+  },
+
+  achievementTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.onSurface,
+    marginTop: 2,
+  },
+
+  achievementDesc: {
+    fontSize: 11,
+    color: colors.onSurfaceTertiary,
+    marginTop: 2,
+  },
+
 });
