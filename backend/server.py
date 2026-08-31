@@ -2050,16 +2050,39 @@ async def debug_llm_image_support():
 
         assinatura = str(inspect.signature(chat.UserMessage))
 
-        try:
-            codigo = inspect.getsource(chat.UserMessage)
-        except Exception as e:
-            codigo = f"Não disponível: {type(e).__name__}: {e}"
+        def inspecionar(nome):
+            obj = getattr(chat, nome, None)
+
+            if obj is None:
+                return {
+                    "existe": False,
+                }
+
+            try:
+                assinatura_obj = str(inspect.signature(obj))
+            except Exception as e:
+                assinatura_obj = f"Erro: {type(e).__name__}: {e}"
+
+            try:
+                codigo_obj = inspect.getsource(obj)
+            except Exception as e:
+                codigo_obj = f"Não disponível: {type(e).__name__}: {e}"
+
+            return {
+                "existe": True,
+                "assinatura": assinatura_obj,
+                "codigo": codigo_obj,
+            }
 
         return {
             "ok": True,
             "nomes": nomes,
             "user_message_signature": assinatura,
-            "user_message_source": codigo,
+            "ImageContent": inspecionar("ImageContent"),
+            "FileContent": inspecionar("FileContent"),
+            "FileContentWithMimeType": inspecionar(
+                "FileContentWithMimeType"
+            ),
         }
 
     except Exception as e:
