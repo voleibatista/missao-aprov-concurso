@@ -12,6 +12,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 import { apiFetch } from '@/src/api/client';
+import { agendarLembreteEstudo } from '@/src/utils/notifications';
 import { colors, spacing, radius, shadow } from '@/src/theme/tokens';
 
 type Tarefa = {
@@ -138,6 +139,36 @@ export default function CalendarioEstudos() {
       );
     } finally {
       setAlterando(null);
+    }
+  };
+
+  const criarLembrete = async (tarefa: Tarefa) => {
+    try {
+      const id = await agendarLembreteEstudo({
+        data: tarefa.data,
+        hora: 19,
+        minuto: 0,
+        disciplina: tarefa.disciplina_nome,
+        taskId: tarefa.task_id,
+      });
+
+      if (!id) {
+        Alert.alert(
+          'Lembrete não criado',
+          'O horário das 19h para esta tarefa já passou.'
+        );
+        return;
+      }
+
+      Alert.alert(
+        'Lembrete criado',
+        `Você será lembrado às 19h para estudar ${tarefa.disciplina_nome}.`
+      );
+    } catch (e: any) {
+      Alert.alert(
+        'Não foi possível criar o lembrete',
+        e?.message || 'Verifique a permissão de notificações.'
+      );
     }
   };
 
@@ -334,6 +365,18 @@ export default function CalendarioEstudos() {
                   />
                 </View>
               </View>
+
+              <Pressable
+                onPress={() => criarLembrete(tarefa)}
+                style={styles.reminderButton}
+              >
+                <Ionicons
+                  name="notifications-outline"
+                  size={16}
+                  color={colors.brandPrimary}
+                />
+                <Text style={styles.reminderButtonText}>19h</Text>
+              </Pressable>
 
               <Pressable
                 onPress={() =>
@@ -610,6 +653,25 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: colors.brandPrimary,
     borderRadius: 999,
+  },
+
+  reminderButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: colors.brandPrimary,
+    borderRadius: radius.md,
+    paddingHorizontal: 9,
+    paddingVertical: 9,
+    backgroundColor: colors.surface,
+  },
+
+  reminderButtonText: {
+    color: colors.brandPrimary,
+    fontSize: 11,
+    fontWeight: '700',
   },
 
   studyNow: {
