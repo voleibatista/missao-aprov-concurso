@@ -2026,6 +2026,49 @@ async def marcar_conquistas_vistas(
     }
 
 
+# ============ DIAGNOSTICO TEMPORARIO LLM ============
+@api_router.get("/debug/llm-image-support")
+async def debug_llm_image_support():
+    import inspect
+
+    try:
+        import emergentintegrations.llm.chat as chat
+
+        nomes = [
+            nome for nome in dir(chat)
+            if any(
+                termo in nome.lower()
+                for termo in [
+                    "image",
+                    "file",
+                    "vision",
+                    "attachment",
+                    "message",
+                ]
+            )
+        ]
+
+        assinatura = str(inspect.signature(chat.UserMessage))
+
+        try:
+            codigo = inspect.getsource(chat.UserMessage)
+        except Exception as e:
+            codigo = f"Não disponível: {type(e).__name__}: {e}"
+
+        return {
+            "ok": True,
+            "nomes": nomes,
+            "user_message_signature": assinatura,
+            "user_message_source": codigo,
+        }
+
+    except Exception as e:
+        return {
+            "ok": False,
+            "erro": f"{type(e).__name__}: {e}",
+        }
+
+
 app.include_router(api_router)
 app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
