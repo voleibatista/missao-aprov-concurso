@@ -817,6 +817,39 @@ async def dashboard(authorization: Optional[str] = Header(None)):
     sim_count = await db.simulados.count_documents({"user_id": uid, "status": "concluido"})
     # Preparation % — rough estimate
     prep = min(100, int((taxa * 0.6) + (min(total_answers, 50) * 0.5) + (sim_count * 2)))
+
+    # Study summary
+    hoje = now_utc().date()
+    inicio_7_dias = hoje - timedelta(days=6)
+
+    minutos_hoje = 0
+    sessoes_hoje = 0
+    minutos_7_dias = 0
+    sessoes_7_dias = 0
+
+    async for sessao in db.study_sessions.find(
+        {"user_id": uid},
+        {"_id": 0, "minutos": 1, "created_at": 1}
+    ):
+        created = sessao.get("created_at")
+
+        if not isinstance(created, datetime):
+            continue
+
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+
+        dia = created.date()
+        minutos = int(sessao.get("minutos", 0))
+
+        if dia == hoje:
+            minutos_hoje += minutos
+            sessoes_hoje += 1
+
+        if inicio_7_dias <= dia <= hoje:
+            minutos_7_dias += minutos
+            sessoes_7_dias += 1
+
     return {
         "user": {"name": user.get("name"), "xp": user.get("xp", 0), "streak": user.get("streak", 0), "concurso_id": user.get("concurso_id")},
         "questoes_respondidas": total_answers,
@@ -827,6 +860,12 @@ async def dashboard(authorization: Optional[str] = Header(None)):
         "percentual_preparacao": prep,
         "por_disciplina": by_disc,
         "meta_diaria": {"questoes": 20, "feito": total_answers},
+        "estudo": {
+            "minutos_hoje": minutos_hoje,
+            "sessoes_hoje": sessoes_hoje,
+            "minutos_7_dias": minutos_7_dias,
+            "sessoes_7_dias": sessoes_7_dias,
+        },
     }
 
 

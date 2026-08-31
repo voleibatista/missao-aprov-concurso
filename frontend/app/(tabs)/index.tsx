@@ -16,6 +16,12 @@ type Dashboard = {
   percentual_preparacao: number;
   por_disciplina: any[];
   meta_diaria: { questoes: number; feito: number };
+  estudo?: {
+    minutos_hoje: number;
+    sessoes_hoje: number;
+    minutos_7_dias: number;
+    sessoes_7_dias: number;
+  };
 };
 
 export default function Home() {
