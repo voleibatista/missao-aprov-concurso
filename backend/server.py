@@ -1344,8 +1344,28 @@ async def listar_sessoes_estudo(
         {"user_id": user["user_id"]},
         {"_id": 0}
     ).sort("created_at", -1).limit(50):
-        if sessao.get("created_at"):
-            sessao["created_at"] = sessao["created_at"].isoformat()
+        created = sessao.get("created_at")
+
+        if created:
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+
+            sessao["created_at"] = created.isoformat()
+
+        if sessao.get("task_id"):
+            tarefa = await db.study_tasks.find_one(
+                {
+                    "task_id": sessao["task_id"],
+                    "user_id": user["user_id"],
+                },
+                {
+                    "_id": 0,
+                    "disciplina_nome": 1,
+                }
+            )
+
+            if tarefa:
+                sessao["disciplina_nome"] = tarefa.get("disciplina_nome")
 
         sessoes.append(sessao)
 
@@ -1354,9 +1374,64 @@ async def listar_sessoes_estudo(
         for s in sessoes
     )
 
+    agora = now_utc()
+    hoje = agora.date()
+    inicio_7_dias = hoje - timedelta(days=6)
+
+    minutos_hoje = 0
+    sessoes_hoje = 0
+    minutos_7_dias = 0
+    sessoes_7_dias = 0
+
+    por_dia = {}
+
+    for i in range(7):
+        dia = inicio_7_dias + timedelta(days=i)
+
+        por_dia[dia.isoformat()] = {
+            "data": dia.isoformat(),
+            "minutos": 0,
+            "sessoes": 0,
+        }
+
+    for sessao in sessoes:
+        created_str = sessao.get("created_at")
+
+        if not created_str:
+            continue
+
+        try:
+            created = datetime.fromisoformat(created_str)
+            dia = created.date()
+        except Exception:
+            continue
+
+        minutos = int(sessao.get("minutos", 0))
+
+        if dia == hoje:
+            minutos_hoje += minutos
+            sessoes_hoje += 1
+
+        if inicio_7_dias <= dia <= hoje:
+            minutos_7_dias += minutos
+            sessoes_7_dias += 1
+
+            chave = dia.isoformat()
+
+            if chave in por_dia:
+                por_dia[chave]["minutos"] += minutos
+                por_dia[chave]["sessoes"] += 1
+
     return {
         "sessoes": sessoes,
-        "total_minutos": total_minutos
+        "total_minutos": total_minutos,
+        "resumo": {
+            "minutos_hoje": minutos_hoje,
+            "sessoes_hoje": sessoes_hoje,
+            "minutos_7_dias": minutos_7_dias,
+            "sessoes_7_dias": sessoes_7_dias,
+        },
+        "ultimos_7_dias": list(por_dia.values()),
     }
 
 

@@ -97,6 +97,7 @@ export default function Home() {
           <ActionBtn testID="action-flashcards" icon="albums" label="Flashcards" badge={data.flashcards_pendentes} onPress={() => router.push('/flashcards')} />
           <ActionBtn testID="action-simulado" icon="timer" label="Simulado" onPress={() => router.push('/simulado')} />
           <ActionBtn testID="action-chat-ia" icon="sparkles" label="Prof. IA" onPress={() => router.push('/chat-ia')} />
+          <ActionBtn testID="action-historico" icon="bar-chart" label="Histórico" onPress={() => router.push('/historico-estudos')} />
           <ActionBtn testID="action-concursos" icon="search" label="Concursos" onPress={() => router.push('/concursos')} />
         </View>
       </View>
