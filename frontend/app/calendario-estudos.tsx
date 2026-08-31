@@ -142,34 +142,48 @@ export default function CalendarioEstudos() {
     }
   };
 
-  const criarLembrete = async (tarefa: Tarefa) => {
-    try {
-      const id = await agendarLembreteEstudo({
-        data: tarefa.data,
-        hora: 19,
-        minuto: 0,
-        disciplina: tarefa.disciplina_nome,
-        taskId: tarefa.task_id,
-      });
+  const criarLembrete = (tarefa: Tarefa) => {
+    const agendar = async (hora: number) => {
+      try {
+        const id = await agendarLembreteEstudo({
+          data: tarefa.data,
+          hora,
+          minuto: 0,
+          disciplina: tarefa.disciplina_nome,
+          taskId: tarefa.task_id,
+        });
 
-      if (!id) {
+        if (!id) {
+          Alert.alert(
+            'Lembrete não criado',
+            `O horário das ${String(hora).padStart(2, '0')}h para esta tarefa já passou.`
+          );
+          return;
+        }
+
         Alert.alert(
-          'Lembrete não criado',
-          'O horário das 19h para esta tarefa já passou.'
+          'Lembrete criado',
+          `Você será lembrado às ${String(hora).padStart(2, '0')}h para estudar ${tarefa.disciplina_nome}.`
         );
-        return;
+      } catch (e: any) {
+        Alert.alert(
+          'Não foi possível criar o lembrete',
+          e?.message || 'Verifique a permissão de notificações.'
+        );
       }
+    };
 
-      Alert.alert(
-        'Lembrete criado',
-        `Você será lembrado às 19h para estudar ${tarefa.disciplina_nome}.`
-      );
-    } catch (e: any) {
-      Alert.alert(
-        'Não foi possível criar o lembrete',
-        e?.message || 'Verifique a permissão de notificações.'
-      );
-    }
+    Alert.alert(
+      'Escolha o horário',
+      `Quando você quer ser lembrado de estudar ${tarefa.disciplina_nome}?`,
+      [
+        { text: '08h', onPress: () => agendar(8) },
+        { text: '12h', onPress: () => agendar(12) },
+        { text: '19h', onPress: () => agendar(19) },
+        { text: '21h', onPress: () => agendar(21) },
+        { text: 'Cancelar', style: 'cancel' },
+      ]
+    );
   };
 
   const formatarData = (data: string) => {
@@ -375,7 +389,7 @@ export default function CalendarioEstudos() {
                   size={16}
                   color={colors.brandPrimary}
                 />
-                <Text style={styles.reminderButtonText}>19h</Text>
+                <Text style={styles.reminderButtonText}>Lembrar</Text>
               </Pressable>
 
               <Pressable
