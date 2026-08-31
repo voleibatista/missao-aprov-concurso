@@ -39,6 +39,7 @@ export default function Perfil() {
         <MenuItem icon="albums" label="Flashcards" onPress={() => router.push('/flashcards')} testID="menu-flashcards" />
         <MenuItem icon="timer" label="Simulados" onPress={() => router.push('/simulado')} testID="menu-simulados" />
         <MenuItem icon="sparkles" label="Professor IA" onPress={() => router.push('/chat-ia')} testID="menu-chat" />
+        <MenuItem icon="medal" label="Conquistas e Medalhas" onPress={() => router.push('/conquistas')} testID="menu-conquistas" />
         {user?.is_admin && <MenuItem icon="settings" label="Administração" onPress={() => router.push('/admin')} testID="menu-admin" />}
         <MenuItem icon="log-out" label="Sair" danger onPress={logout} testID="logout-btn" />
       </View>

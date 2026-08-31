@@ -1760,3 +1760,155 @@ async def startup():
 @app.on_event("shutdown")
 async def shutdown():
     client.close()
+
+# ============ CONQUISTAS / NIVEIS ============
+
+@api_router.get("/conquistas")
+async def listar_conquistas(
+    authorization: Optional[str] = Header(None)
+):
+    user = await require_user(authorization)
+    uid = user["user_id"]
+
+    xp = int(user.get("xp", 0))
+    streak = int(user.get("streak", 0))
+
+    questoes = await db.answers.count_documents({
+        "user_id": uid
+    })
+
+    acertos = await db.answers.count_documents({
+        "user_id": uid,
+        "correta": True
+    })
+
+    simulados = await db.simulados.count_documents({
+        "user_id": uid,
+        "status": "concluido"
+    })
+
+    pipeline = [
+        {"$match": {"user_id": uid}},
+        {
+            "$group": {
+                "_id": None,
+                "total": {"$sum": "$minutos"}
+            }
+        }
+    ]
+
+    minutos_estudo = 0
+
+    async for item in db.study_sessions.aggregate(pipeline):
+        minutos_estudo = int(item.get("total", 0))
+
+    conquistas = [
+        {
+            "id": "primeira_questao",
+            "titulo": "Primeiro passo",
+            "descricao": "Responda sua primeira questão",
+            "icone": "flag",
+            "desbloqueada": questoes >= 1,
+            "progresso": min(questoes, 1),
+            "meta": 1,
+        },
+        {
+            "id": "questoes_50",
+            "titulo": "Em ritmo de prova",
+            "descricao": "Responda 50 questões",
+            "icone": "help-circle",
+            "desbloqueada": questoes >= 50,
+            "progresso": min(questoes, 50),
+            "meta": 50,
+        },
+        {
+            "id": "questoes_500",
+            "titulo": "Máquina de questões",
+            "descricao": "Responda 500 questões",
+            "icone": "rocket",
+            "desbloqueada": questoes >= 500,
+            "progresso": min(questoes, 500),
+            "meta": 500,
+        },
+        {
+            "id": "acertos_100",
+            "titulo": "Mira certeira",
+            "descricao": "Acerte 100 questões",
+            "icone": "checkmark-circle",
+            "desbloqueada": acertos >= 100,
+            "progresso": min(acertos, 100),
+            "meta": 100,
+        },
+        {
+            "id": "streak_3",
+            "titulo": "Criando o hábito",
+            "descricao": "Mantenha 3 dias de sequência",
+            "icone": "flame",
+            "desbloqueada": streak >= 3,
+            "progresso": min(streak, 3),
+            "meta": 3,
+        },
+        {
+            "id": "streak_7",
+            "titulo": "Semana perfeita",
+            "descricao": "Mantenha 7 dias de sequência",
+            "icone": "flame",
+            "desbloqueada": streak >= 7,
+            "progresso": min(streak, 7),
+            "meta": 7,
+        },
+        {
+            "id": "primeiro_simulado",
+            "titulo": "Dia de prova",
+            "descricao": "Conclua seu primeiro simulado",
+            "icone": "document-text",
+            "desbloqueada": simulados >= 1,
+            "progresso": min(simulados, 1),
+            "meta": 1,
+        },
+        {
+            "id": "estudo_60",
+            "titulo": "Hora do foco",
+            "descricao": "Complete 60 minutos de estudo",
+            "icone": "stopwatch",
+            "desbloqueada": minutos_estudo >= 60,
+            "progresso": min(minutos_estudo, 60),
+            "meta": 60,
+        },
+        {
+            "id": "estudo_600",
+            "titulo": "Maratonista",
+            "descricao": "Complete 10 horas de estudo",
+            "icone": "medal",
+            "desbloqueada": minutos_estudo >= 600,
+            "progresso": min(minutos_estudo, 600),
+            "meta": 600,
+        },
+        {
+            "id": "xp_1000",
+            "titulo": "Veterano",
+            "descricao": "Alcance 1.000 XP",
+            "icone": "trophy",
+            "desbloqueada": xp >= 1000,
+            "progresso": min(xp, 1000),
+            "meta": 1000,
+        },
+    ]
+
+    desbloqueadas = sum(
+        1 for conquista in conquistas
+        if conquista["desbloqueada"]
+    )
+
+    nivel = (xp // 100) + 1
+    xp_nivel = xp % 100
+
+    return {
+        "nivel": nivel,
+        "xp": xp,
+        "xp_nivel": xp_nivel,
+        "xp_proximo_nivel": 100 - xp_nivel,
+        "desbloqueadas": desbloqueadas,
+        "total": len(conquistas),
+        "conquistas": conquistas,
+    }
