@@ -53,6 +53,56 @@ def now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
+async def registrar_atividade_estudo(
+    user_id: str,
+    xp_gain: int = 0
+):
+    user = await db.users.find_one(
+        {"user_id": user_id},
+        {"_id": 0, "streak": 1, "last_study_date": 1}
+    )
+
+    if not user:
+        return {
+            "xp_gain": 0,
+            "streak": 0
+        }
+
+    hoje = now_utc().date().isoformat()
+    ontem = (now_utc().date() - timedelta(days=1)).isoformat()
+
+    ultimo = user.get("last_study_date")
+    streak = int(user.get("streak", 0))
+
+    if ultimo != hoje:
+        if ultimo == ontem:
+            streak += 1
+        else:
+            streak = 1
+
+    update = {
+        "$set": {
+            "last_study_date": hoje,
+            "streak": streak,
+        }
+    }
+
+    if xp_gain > 0:
+        update["$inc"] = {
+            "xp": int(xp_gain)
+        }
+
+    await db.users.update_one(
+        {"user_id": user_id},
+        update
+    )
+
+    return {
+        "xp_gain": int(xp_gain),
+        "streak": streak,
+    }
+
+
 def gen_id(prefix: str = "u") -> str:
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
@@ -603,18 +653,19 @@ async def answer_questao(data: QuestionAnswer, authorization: Optional[str] = He
         "correta": correta, "created_at": now_utc(),
     })
     xp_gain = 10 if correta else 3
-    today = now_utc().date().isoformat()
-    last = user.get("last_study_date")
-    streak = user.get("streak", 0)
-    if last != today:
-        yesterday = (now_utc().date() - timedelta(days=1)).isoformat()
-        streak = streak + 1 if last == yesterday else 1
-    await db.users.update_one(
-        {"user_id": user["user_id"]},
-        {"$inc": {"xp": xp_gain}, "$set": {"last_study_date": today, "streak": streak}},
+
+    atividade = await registrar_atividade_estudo(
+        user["user_id"],
+        xp_gain=xp_gain
     )
-    return {"correta": correta, "explicacao": questao["explicacao"],
-            "resposta_correta": questao["correta"], "xp_gain": xp_gain}
+
+    return {
+        "correta": correta,
+        "explicacao": questao["explicacao"],
+        "resposta_correta": questao["correta"],
+        "xp_gain": xp_gain,
+        "streak": atividade["streak"],
+    }
 
 
 @api_router.post("/questoes/{questao_id}/favorite")
@@ -708,8 +759,18 @@ async def review_flashcard(data: FlashcardReview, authorization: Optional[str] =
         {"$set": {"interval": new_interval, "last_result": data.resultado, "next_review": next_review, "updated_at": now_utc()}},
         upsert=True,
     )
-    await db.users.update_one({"user_id": user["user_id"]}, {"$inc": {"xp": 5}})
-    return {"ok": True, "next_review": next_review.isoformat(), "interval_days": new_interval}
+    atividade = await registrar_atividade_estudo(
+        user["user_id"],
+        xp_gain=5
+    )
+
+    return {
+        "ok": True,
+        "next_review": next_review.isoformat(),
+        "interval_days": new_interval,
+        "xp_gain": 5,
+        "streak": atividade["streak"],
+    }
 
 
 # ============ SIMULADO ============
@@ -765,9 +826,35 @@ async def simulado_submit(data: SimuladoSubmit, authorization: Optional[str] = H
         await db.answers.insert_one({"user_id": user["user_id"], "questao_id": qid, "disciplina": d, "resposta": resp, "correta": certo, "created_at": now_utc(), "origem": "simulado"})
     percentual = round(100.0 * acertos / total, 1) if total else 0
     xp = acertos * 15
-    await db.simulados.update_one({"simulado_id": data.simulado_id}, {"$set": {"status": "concluido", "acertos": acertos, "total": total, "percentual": percentual, "por_disciplina": por_disciplina, "concluido_em": now_utc()}})
-    await db.users.update_one({"user_id": user["user_id"]}, {"$inc": {"xp": xp}})
-    return {"acertos": acertos, "total": total, "percentual": percentual, "por_disciplina": por_disciplina, "corrigidas": corrigidas, "xp_gain": xp}
+
+    await db.simulados.update_one(
+        {"simulado_id": data.simulado_id},
+        {
+            "$set": {
+                "status": "concluido",
+                "acertos": acertos,
+                "total": total,
+                "percentual": percentual,
+                "por_disciplina": por_disciplina,
+                "concluido_em": now_utc(),
+            }
+        }
+    )
+
+    atividade = await registrar_atividade_estudo(
+        user["user_id"],
+        xp_gain=xp
+    )
+
+    return {
+        "acertos": acertos,
+        "total": total,
+        "percentual": percentual,
+        "por_disciplina": por_disciplina,
+        "corrigidas": corrigidas,
+        "xp_gain": xp,
+        "streak": atividade["streak"],
+    }
 
 
 @api_router.get("/simulados/historico")
@@ -1331,11 +1418,14 @@ async def registrar_sessao_estudo(
 
     session_id = gen_id("session")
 
+    xp_gain = max(1, minutos // 5)
+
     doc = {
         "session_id": session_id,
         "user_id": user["user_id"],
         "task_id": data.task_id,
         "minutos": minutos,
+        "xp_gain": xp_gain,
         "created_at": now_utc(),
     }
 
@@ -1363,11 +1453,18 @@ async def registrar_sessao_estudo(
             }
         )
 
+    atividade = await registrar_atividade_estudo(
+        user["user_id"],
+        xp_gain=xp_gain
+    )
+
     doc.pop("_id", None)
 
     return {
         "ok": True,
-        "sessao": doc
+        "sessao": doc,
+        "xp_gain": xp_gain,
+        "streak": atividade["streak"],
     }
 
 
