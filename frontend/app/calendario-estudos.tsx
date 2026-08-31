@@ -350,8 +350,9 @@ export default function CalendarioEstudos() {
                 <Ionicons
                   name="play"
                   size={16}
-                  color={colors.brandPrimary}
+                  color="#fff"
                 />
+                <Text style={styles.studyNowText}>Estudar agora</Text>
               </Pressable>
 
               <Pressable
@@ -612,14 +613,20 @@ const styles = StyleSheet.create({
   },
 
   studyNow: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.brandPrimary,
+    gap: 6,
+    backgroundColor: colors.brandPrimary,
+    borderRadius: radius.md,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+
+  studyNowText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
   },
 
   check: {

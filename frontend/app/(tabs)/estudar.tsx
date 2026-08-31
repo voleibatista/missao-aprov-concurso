@@ -72,6 +72,17 @@ export default function Estudar() {
         </View>
         <Ionicons name="chevron-forward" size={22} color={colors.brandPrimary} />
       </Pressable>
+      <Pressable onPress={() => router.push('/calendario-estudos')} style={styles.bigCard}>
+        <View style={[styles.bigIcon, { backgroundColor: '#0F766E' }]}>
+          <Ionicons name="calendar-outline" size={26} color="#fff" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.bigTitle}>Calendário de Estudos</Text>
+          <Text style={styles.bigDesc}>Sua semana, tarefas e progresso de estudo</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={22} color={colors.brandPrimary} />
+      </Pressable>
+
       <Pressable onPress={() => router.push('/enem')} style={styles.bigCard}>
         <View style={[styles.bigIcon, { backgroundColor: '#7C3AED' }]}><Ionicons name="school" size={26} color="#fff" /></View>
         <View style={{ flex: 1 }}><Text style={styles.bigTitle}>ENEM</Text><Text style={styles.bigDesc}>Áreas, questões e simulados</Text></View><Ionicons name="chevron-forward" size={22} color={colors.brandPrimary} />
