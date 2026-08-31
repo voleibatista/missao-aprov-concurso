@@ -30,13 +30,17 @@ export default function Questoes() {
 
   const responder = async () => {
     if (choice == null) return;
+
     const q = questoes[idx];
-  const favoritar = async () => {
-    if (!q) return;
-    const r = await apiFetch(`/questoes/${q.id}/favorite`, { method: 'POST' });
-    setFavorited(r.favorited);
-  };
-    const r = await apiFetch('/questoes/answer', { method: 'POST', body: JSON.stringify({ questao_id: q.id, resposta: choice }) });
+
+    const r = await apiFetch('/questoes/answer', {
+      method: 'POST',
+      body: JSON.stringify({
+        questao_id: q.id,
+        resposta: choice,
+      }),
+    });
+
     setResultado(r);
   };
   const proxima = () => {
@@ -105,9 +109,49 @@ export default function Questoes() {
           })}
 
           {resultado && (
-            <View style={[styles.explain, { borderColor: resultado.correta ? colors.success : colors.error }]}>
-              <Text style={styles.explainTitle}>{resultado.correta ? '✅ Correto!' : '❌ Errou'} +{resultado.xp_gain} XP</Text>
-              <Text style={styles.explainText}>{resultado.explicacao}</Text>
+            <View
+              style={[
+                styles.explain,
+                {
+                  borderColor: resultado.correta
+                    ? colors.success
+                    : colors.error,
+                },
+              ]}
+            >
+              <View style={styles.resultHeader}>
+                <Text style={styles.explainTitle}>
+                  {resultado.correta ? '✅ Correto!' : '❌ Errou'}
+                </Text>
+
+                <View style={styles.xpBadge}>
+                  <Ionicons
+                    name="trophy"
+                    size={15}
+                    color={colors.warning}
+                  />
+                  <Text style={styles.xpBadgeText}>
+                    +{resultado.xp_gain} XP
+                  </Text>
+                </View>
+              </View>
+
+              {resultado.streak > 0 && (
+                <View style={styles.streakResult}>
+                  <Ionicons
+                    name="flame"
+                    size={15}
+                    color={colors.warning}
+                  />
+                  <Text style={styles.streakResultText}>
+                    {resultado.streak} dia(s) de sequência
+                  </Text>
+                </View>
+              )}
+
+              <Text style={styles.explainText}>
+                {resultado.explicacao}
+              </Text>
             </View>
           )}
         </ScrollView>
@@ -157,4 +201,41 @@ const styles = StyleSheet.create({
   primaryBtn: { backgroundColor: colors.brandPrimary, borderRadius: radius.md, paddingVertical: 14, alignItems: 'center' },
   primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   disabled: { opacity: 0.4 },
+
+  resultHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+
+  xpBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+
+  xpBadgeText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.warning,
+  },
+
+  streakResult: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: spacing.sm,
+  },
+
+  streakResultText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.onSurfaceSecondary,
+  },
+
 });

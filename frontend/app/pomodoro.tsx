@@ -56,7 +56,7 @@ export default function Pomodoro() {
     setSaving(true);
 
     try {
-      await apiFetch('/sessoes-estudo', {
+      const r = await apiFetch('/sessoes-estudo', {
         method: 'POST',
         body: JSON.stringify({
           task_id: params.task_id || null,
@@ -66,9 +66,12 @@ export default function Pomodoro() {
 
       setRegistrado(true);
 
+      const xp = r.xp_gain ?? Math.max(1, Math.floor(duracao / 5));
+      const streak = r.streak ?? 0;
+
       Alert.alert(
         'Sessão concluída',
-        `${duracao} minutos de estudo registrados com sucesso.`,
+        `${duracao} minutos registrados • +${xp} XP${streak > 0 ? ` • ${streak} dia(s) de sequência` : ''}.`,
         [
           {
             text: 'Continuar aqui',

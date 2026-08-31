@@ -12,6 +12,10 @@ export default function Flashcards() {
   const [flipped, setFlipped] = useState(false);
   const [loading, setLoading] = useState(true);
   const [done, setDone] = useState(false);
+  const [recompensa, setRecompensa] = useState<{
+    xp: number;
+    streak: number;
+  } | null>(null);
   const flipVal = useSharedValue(0);
   const router = useRouter();
 
@@ -36,10 +40,32 @@ export default function Flashcards() {
 
   const responder = async (resultado: string) => {
     const card = cards[idx];
-    await apiFetch('/flashcards/review', { method: 'POST', body: JSON.stringify({ flashcard_id: card.id, resultado }) });
-    flipVal.value = 0; setFlipped(false);
-    if (idx + 1 < cards.length) setIdx(idx + 1);
-    else setDone(true);
+
+    const r = await apiFetch('/flashcards/review', {
+      method: 'POST',
+      body: JSON.stringify({
+        flashcard_id: card.id,
+        resultado,
+      }),
+    });
+
+    setRecompensa({
+      xp: r.xp_gain ?? 5,
+      streak: r.streak ?? 0,
+    });
+
+    setTimeout(() => {
+      setRecompensa(null);
+    }, 1800);
+
+    flipVal.value = 0;
+    setFlipped(false);
+
+    if (idx + 1 < cards.length) {
+      setIdx(idx + 1);
+    } else {
+      setDone(true);
+    }
   };
 
   if (loading) return <View style={styles.center}><ActivityIndicator size="large" color={colors.brandPrimary} /></View>;
@@ -61,6 +87,36 @@ export default function Flashcards() {
         <Text style={styles.progress}>{idx + 1} / {cards.length}</Text>
         <View style={{ width: 26 }} />
       </View>
+
+      {recompensa && (
+        <View style={styles.rewardBanner}>
+          <Ionicons
+            name="trophy"
+            size={17}
+            color={colors.warning}
+          />
+
+          <Text style={styles.rewardXp}>
+            +{recompensa.xp} XP
+          </Text>
+
+          {recompensa.streak > 0 && (
+            <>
+              <Text style={styles.rewardDivider}>•</Text>
+
+              <Ionicons
+                name="flame"
+                size={16}
+                color={colors.warning}
+              />
+
+              <Text style={styles.rewardStreak}>
+                {recompensa.streak} dia(s)
+              </Text>
+            </>
+          )}
+        </View>
+      )}
 
       <Pressable testID="flashcard-flip" onPress={flip} style={styles.cardArea}>
         <Animated.View style={[styles.card, frontStyle]}>
@@ -107,4 +163,36 @@ const styles = StyleSheet.create({
   hintFooter: { color: colors.info, fontSize: 13 },
   primaryBtn: { backgroundColor: colors.brandPrimary, borderRadius: radius.md, paddingVertical: 14, paddingHorizontal: 32, marginTop: spacing.md },
   primaryBtnText: { color: '#fff', fontWeight: '700' },
+
+  rewardBanner: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    marginTop: spacing.sm,
+  },
+
+  rewardXp: {
+    color: colors.warning,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+
+  rewardDivider: {
+    color: colors.onSurfaceTertiary,
+    marginHorizontal: 2,
+  },
+
+  rewardStreak: {
+    color: colors.onSurfaceSecondary,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
 });

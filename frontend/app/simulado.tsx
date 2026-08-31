@@ -111,7 +111,31 @@ export default function Simulado() {
       <View style={styles.resultBox}>
         <Text style={styles.resultPct} testID="sim-result-pct">{result.percentual}%</Text>
         <Text style={styles.resultLabel}>{result.acertos} de {result.total} acertos</Text>
-        <Text style={styles.resultXp}>+{result.xp_gain} XP</Text>
+        <View style={styles.rewardRow}>
+          <View style={styles.resultXp}>
+            <Ionicons
+              name="trophy"
+              size={16}
+              color={colors.warning}
+            />
+            <Text style={styles.resultXpText}>
+              +{result.xp_gain ?? 0} XP
+            </Text>
+          </View>
+
+          {result.streak > 0 && (
+            <View style={styles.resultStreak}>
+              <Ionicons
+                name="flame"
+                size={16}
+                color={colors.warning}
+              />
+              <Text style={styles.resultStreakText}>
+                {result.streak} dia(s)
+              </Text>
+            </View>
+          )}
+        </View>
       </View>
       <Text style={styles.h2}>Por disciplina</Text>
       {Object.entries(result.por_disciplina || {}).map(([d, v]: any) => {
@@ -164,7 +188,40 @@ const styles = StyleSheet.create({
   resultBox: { backgroundColor: colors.brand, borderRadius: radius.lg, padding: spacing.xl, alignItems: 'center', marginTop: spacing.lg },
   resultPct: { fontSize: 56, fontWeight: '900', color: '#fff', letterSpacing: -2 },
   resultLabel: { color: 'rgba(255,255,255,0.9)', fontWeight: '600', marginTop: spacing.xs },
-  resultXp: { color: colors.warning, fontWeight: '800', marginTop: spacing.md, backgroundColor: 'rgba(255,255,255,0.15)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
+  rewardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  resultXp: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  resultXpText: {
+    color: colors.warning,
+    fontWeight: '800',
+  },
+  resultStreak: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  resultStreakText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
   discRow: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: colors.surfaceSecondary, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.sm },
   discName: { color: colors.onSurface, fontWeight: '600', textTransform: 'capitalize' },
   discPct: { fontWeight: '800' },
