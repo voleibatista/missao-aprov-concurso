@@ -15,7 +15,22 @@ export default function Enem() {
     {data.areas.map((a:any)=><Pressable key={a.id} style={s.card} onPress={()=>router.push({pathname:'/(tabs)/questoes',params:{disciplina:a.id}})}>
       <Ionicons name="school" size={24} color={a.cor||colors.brandPrimary}/><View style={{flex:1}}><Text style={s.title}>{a.nome}</Text><Text style={s.small}>{data.questoes_por_area[a.id]||0} questões disponíveis</Text></View><Ionicons name="chevron-forward" size={20} color={colors.info}/>
     </Pressable>)}
+    <Pressable
+      style={s.redacao}
+      onPress={() => router.push('/redacao-enem')}
+    >
+      <Ionicons name="create-outline" size={21} color={colors.brandPrimary} />
+      <View style={{ flex: 1 }}>
+        <Text style={s.redacaoTitle}>Corrigir minha redação</Text>
+        <Text style={s.redacaoText}>Envie uma foto e receba análise pelas 5 competências</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={20} color={colors.brandPrimary} />
+    </Pressable>
+
     <Pressable style={s.primary} onPress={()=>router.push({pathname:'/simulado',params:{concurso_id:'enem-2026'}})}><Text style={s.primaryText}>Fazer simulado ENEM</Text></Pressable>
   </ScrollView>
 }
-const s=StyleSheet.create({container:{flex:1,backgroundColor:colors.surface},content:{padding:spacing.xl,paddingTop:55,paddingBottom:60},center:{flex:1,alignItems:'center',justifyContent:'center'},h1:{fontSize:30,fontWeight:'800',marginTop:20,color:colors.onSurface},sub:{color:colors.onSurfaceTertiary,marginBottom:20},card:{flexDirection:'row',gap:12,alignItems:'center',padding:16,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,backgroundColor:colors.surfaceSecondary,marginBottom:10},title:{fontWeight:'700',color:colors.onSurface},small:{fontSize:12,color:colors.onSurfaceTertiary,marginTop:3},primary:{backgroundColor:colors.brandPrimary,padding:16,borderRadius:radius.md,alignItems:'center',marginTop:12},primaryText:{color:'#fff',fontWeight:'800'}})
+const s=StyleSheet.create({container:{flex:1,backgroundColor:colors.surface},content:{padding:spacing.xl,paddingTop:55,paddingBottom:60},center:{flex:1,alignItems:'center',justifyContent:'center'},h1:{fontSize:30,fontWeight:'800',marginTop:20,color:colors.onSurface},sub:{color:colors.onSurfaceTertiary,marginBottom:20},card:{flexDirection:'row',gap:12,alignItems:'center',padding:16,borderWidth:1,borderColor:colors.border,borderRadius:radius.md,backgroundColor:colors.surfaceSecondary,marginBottom:10},title:{fontWeight:'700',color:colors.onSurface},small:{fontSize:12,color:colors.onSurfaceTertiary,marginTop:3},primary:{backgroundColor:colors.brandPrimary,padding:16,borderRadius:radius.md,alignItems:'center',marginTop:12},primaryText:{color:'#fff',fontWeight:'800'},
+redacao:{flexDirection:'row',alignItems:'center',gap:12,padding:16,borderWidth:1,borderColor:colors.brandPrimary,borderRadius:radius.md,backgroundColor:colors.surfaceSecondary,marginTop:14},
+redacaoTitle:{fontWeight:'800',color:colors.onSurface,fontSize:14},
+redacaoText:{fontSize:11,color:colors.onSurfaceTertiary,marginTop:3,lineHeight:15}})

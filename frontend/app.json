@@ -37,7 +37,14 @@
         }
       ],
       "@react-native-google-signin/google-signin",
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Permita que o Missão Aprov acesse sua redação para realizar a correção.",
+          "cameraPermission": "Permita que o Missão Aprov use a câmera para fotografar sua redação."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

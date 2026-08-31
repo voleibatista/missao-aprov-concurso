@@ -47,3 +47,32 @@ export async function apiFetch(path: string, opts: RequestInit = {}) {
   }
   return res.json();
 }
+
+export async function apiFetchForm(path: string, formData: FormData) {
+  const token = await getToken();
+
+  const headers: any = {};
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API}${path}`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+
+    try {
+      const j = await res.json();
+      msg = j.detail || msg;
+    } catch {}
+
+    throw new Error(msg);
+  }
+
+  return res.json();
+}

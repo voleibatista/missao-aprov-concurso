@@ -1,5 +1,5 @@
 """MISSÃO APROV CONCURSO — Backend API."""
-from fastapi import FastAPI, APIRouter, HTTPException, Header, Request
+from fastapi import FastAPI, APIRouter, HTTPException, Header, Request, UploadFile, File
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -2023,6 +2023,272 @@ async def marcar_conquistas_vistas(
     return {
         "ok": True,
         "ids": ids
+    }
+
+
+
+# ============ REDACAO ENEM ============
+
+@api_router.post("/redacao-enem/corrigir")
+async def corrigir_redacao_enem(
+    arquivo: UploadFile = File(...),
+    authorization: Optional[str] = Header(None)
+):
+    user = await require_user(authorization)
+
+    if not arquivo.content_type or not arquivo.content_type.startswith("image/"):
+        raise HTTPException(
+            status_code=400,
+            detail="Envie uma imagem válida da redação"
+        )
+
+    conteudo = await arquivo.read()
+
+    if not conteudo:
+        raise HTTPException(
+            status_code=400,
+            detail="Imagem vazia"
+        )
+
+    if len(conteudo) > 12 * 1024 * 1024:
+        raise HTTPException(
+            status_code=400,
+            detail="A imagem deve ter no máximo 12 MB"
+        )
+
+    import base64
+    import json
+    import re
+
+    from emergentintegrations.llm.chat import (
+        LlmChat,
+        UserMessage,
+        ImageContent,
+    )
+
+    imagem_base64 = base64.b64encode(conteudo).decode("utf-8")
+
+    prompt = """
+Você é um corretor especialista em redação do ENEM.
+
+Analise cuidadosamente a imagem da redação manuscrita enviada pelo aluno.
+
+Primeiro, leia e transcreva apenas o que for possível identificar com segurança.
+Não invente trechos ilegíveis.
+
+Depois avalie a redação segundo as 5 competências do ENEM:
+
+Competência 1:
+Domínio da modalidade escrita formal da língua portuguesa.
+
+Competência 2:
+Compreensão da proposta de redação e aplicação de conceitos das várias áreas
+do conhecimento para desenvolver o tema dentro dos limites estruturais do
+texto dissertativo-argumentativo em prosa.
+
+Competência 3:
+Seleção, relação, organização e interpretação de informações, fatos, opiniões
+e argumentos em defesa de um ponto de vista.
+
+Competência 4:
+Conhecimento dos mecanismos linguísticos necessários para a construção da
+argumentação.
+
+Competência 5:
+Elaboração de proposta de intervenção para o problema abordado, respeitando
+os direitos humanos.
+
+Cada competência deve receber uma nota estimada entre:
+0, 40, 80, 120, 160 ou 200.
+
+A nota total deve ser a soma das cinco competências, entre 0 e 1000.
+
+Verifique também possíveis situações de nota zero, como:
+- fuga total ao tema;
+- texto insuficiente;
+- texto não dissertativo-argumentativo;
+- identificação indevida;
+- cópia predominante dos textos motivadores;
+- impropérios, desenhos ou outras formas propositais de anulação.
+
+Retorne SOMENTE JSON válido, sem markdown, no formato:
+
+{
+  "transcricao": "texto transcrito da imagem",
+  "nota_total": 0,
+  "competencias": [
+    {
+      "numero": 1,
+      "nota": 0,
+      "titulo": "Domínio da norma padrão",
+      "feedback": "explicação objetiva"
+    },
+    {
+      "numero": 2,
+      "nota": 0,
+      "titulo": "Compreensão do tema",
+      "feedback": "explicação objetiva"
+    },
+    {
+      "numero": 3,
+      "nota": 0,
+      "titulo": "Argumentação",
+      "feedback": "explicação objetiva"
+    },
+    {
+      "numero": 4,
+      "nota": 0,
+      "titulo": "Coesão",
+      "feedback": "explicação objetiva"
+    },
+    {
+      "numero": 5,
+      "nota": 0,
+      "titulo": "Proposta de intervenção",
+      "feedback": "explicação objetiva"
+    }
+  ],
+  "pontos_fortes": [
+    "..."
+  ],
+  "pontos_melhorar": [
+    "..."
+  ],
+  "sugestoes": [
+    "..."
+  ],
+  "possivel_nota_zero": false,
+  "motivo_nota_zero": null,
+  "observacao": "A nota é uma estimativa educacional e não substitui a correção oficial do ENEM."
+}
+
+Se a imagem estiver ilegível ou incompleta, deixe isso claro em "observacao"
+e não invente conteúdo.
+"""
+
+    chat = (
+        LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=gen_id("redacao"),
+            system_message="Você é um corretor especialista em redações do ENEM."
+        )
+        .with_model("google", "gemini-2.5-flash")
+    )
+
+    try:
+        response = await chat.send_message(
+            UserMessage(
+                text=prompt,
+                file_contents=[
+                    ImageContent(imagem_base64)
+                ],
+            )
+        )
+
+        texto = response if isinstance(response, str) else str(response)
+
+        texto = texto.strip()
+
+        if texto.startswith("```"):
+            texto = re.sub(r"^```(?:json)?\s*", "", texto)
+            texto = re.sub(r"\s*```$", "", texto)
+
+        resultado = json.loads(texto)
+
+    except json.JSONDecodeError:
+        logger.exception("redacao_enem json invalido")
+
+        raise HTTPException(
+            status_code=500,
+            detail="A IA respondeu em formato inválido. Tente novamente."
+        )
+
+    except Exception as e:
+        logger.exception("redacao_enem error")
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao corrigir redação: {str(e)}"
+        )
+
+    competencias = resultado.get("competencias", [])
+
+    notas_validas = {0, 40, 80, 120, 160, 200}
+
+    for competencia in competencias:
+        nota = int(competencia.get("nota", 0))
+
+        if nota not in notas_validas:
+            nota = min(
+                notas_validas,
+                key=lambda x: abs(x - nota)
+            )
+
+        competencia["nota"] = nota
+
+    if len(competencias) == 5:
+        resultado["nota_total"] = sum(
+            int(c.get("nota", 0))
+            for c in competencias
+        )
+
+    doc = {
+        "correcao_id": gen_id("redacao"),
+        "user_id": user["user_id"],
+        "nota_total": resultado.get("nota_total", 0),
+        "competencias": competencias,
+        "transcricao": resultado.get("transcricao", ""),
+        "pontos_fortes": resultado.get("pontos_fortes", []),
+        "pontos_melhorar": resultado.get("pontos_melhorar", []),
+        "sugestoes": resultado.get("sugestoes", []),
+        "possivel_nota_zero": resultado.get(
+            "possivel_nota_zero",
+            False
+        ),
+        "motivo_nota_zero": resultado.get(
+            "motivo_nota_zero"
+        ),
+        "observacao": resultado.get(
+            "observacao",
+            "Nota estimada para fins educacionais."
+        ),
+        "created_at": now_utc(),
+    }
+
+    await db.redacoes_enem.insert_one(doc)
+
+    doc.pop("_id", None)
+    doc["created_at"] = doc["created_at"].isoformat()
+
+    return {
+        "ok": True,
+        "correcao": doc,
+    }
+
+
+@api_router.get("/redacao-enem/historico")
+async def historico_redacoes_enem(
+    authorization: Optional[str] = Header(None)
+):
+    user = await require_user(authorization)
+
+    itens = []
+
+    async for item in db.redacoes_enem.find(
+        {"user_id": user["user_id"]},
+        {
+            "_id": 0,
+            "transcricao": 0,
+        }
+    ).sort("created_at", -1).limit(30):
+
+        if item.get("created_at"):
+            item["created_at"] = item["created_at"].isoformat()
+
+        itens.append(item)
+
+    return {
+        "redacoes": itens
     }
 
 
